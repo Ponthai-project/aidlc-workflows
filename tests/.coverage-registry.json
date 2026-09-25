@@ -20,9 +20,9 @@
     "render-surface": "tui"
   },
   "counts": {
-    "total": 1157,
+    "total": 1159,
     "enumeratedByClass": {
-      "function": 831,
+      "function": 833,
       "audit": 105,
       "scope": 11,
       "stage": 33,
@@ -31,7 +31,7 @@
       "render-surface": 7
     },
     "coveredByClass": {
-      "function": 497,
+      "function": 499,
       "audit": 66,
       "scope": 11,
       "stage": 11,
@@ -2124,6 +2124,10 @@
         },
         {
           "file": "tests/unit/t337-ceremony-policy.test.ts",
+          "mechanism": "none"
+        },
+        {
+          "file": "tests/unit/t345-receipt-scope-migration.test.ts",
           "mechanism": "none"
         }
       ],
@@ -5161,6 +5165,18 @@
     },
     {
       "unitClass": "function",
+      "unitId": "function:markdownBlocks",
+      "minMechanism": "none",
+      "coveredBy": [
+        {
+          "file": "tests/unit/t341-markdown-blocks.test.ts",
+          "mechanism": "none"
+        }
+      ],
+      "status": "covered"
+    },
+    {
+      "unitClass": "function",
       "unitId": "function:markEngineTouch",
       "minMechanism": "none",
       "coveredBy": [
@@ -5292,6 +5308,10 @@
       "coveredBy": [
         {
           "file": "tests/unit/t333-change-control.test.ts",
+          "mechanism": "cli"
+        },
+        {
+          "file": "tests/unit/t343-raw-html-consumer-contracts.test.ts",
           "mechanism": "cli"
         }
       ],
@@ -5494,6 +5514,18 @@
       "coveredBy": [
         {
           "file": "tests/unit/t311-committed-reviewed-source-evidence.test.ts",
+          "mechanism": "none"
+        }
+      ],
+      "status": "covered"
+    },
+    {
+      "unitClass": "function",
+      "unitId": "function:normalizeMarkdownLabel",
+      "minMechanism": "none",
+      "coveredBy": [
+        {
+          "file": "tests/unit/t341-markdown-blocks.test.ts",
           "mechanism": "none"
         }
       ],
@@ -8727,6 +8759,18 @@
         {
           "file": "tests/integration/t185-stage-artifact-guard.test.ts",
           "mechanism": "cli"
+        },
+        {
+          "file": "tests/unit/t341-markdown-blocks.test.ts",
+          "mechanism": "none"
+        },
+        {
+          "file": "tests/unit/t343-raw-html-consumer-contracts.test.ts",
+          "mechanism": "cli"
+        },
+        {
+          "file": "tests/unit/t344-visible-markdown-goldens.test.ts",
+          "mechanism": "none"
         }
       ],
       "status": "covered"
@@ -8739,6 +8783,22 @@
         {
           "file": "tests/integration/t185-stage-artifact-guard.test.ts",
           "mechanism": "cli"
+        },
+        {
+          "file": "tests/unit/t341-markdown-blocks.test.ts",
+          "mechanism": "none"
+        },
+        {
+          "file": "tests/unit/t343-raw-html-consumer-contracts.test.ts",
+          "mechanism": "cli"
+        },
+        {
+          "file": "tests/unit/t344-visible-markdown-goldens.test.ts",
+          "mechanism": "none"
+        },
+        {
+          "file": "tests/unit/t345-receipt-scope-migration.test.ts",
+          "mechanism": "none"
         }
       ],
       "status": "covered"
@@ -8762,6 +8822,10 @@
       "coveredBy": [
         {
           "file": "tests/unit/t-review-summary-input-boundary.test.ts",
+          "mechanism": "none"
+        },
+        {
+          "file": "tests/unit/t344-visible-markdown-goldens.test.ts",
           "mechanism": "none"
         }
       ],
@@ -9437,6 +9501,10 @@
         {
           "file": "tests/integration/t185-stage-artifact-guard.test.ts",
           "mechanism": "cli"
+        },
+        {
+          "file": "tests/unit/t344-visible-markdown-goldens.test.ts",
+          "mechanism": "none"
         }
       ],
       "status": "covered"
