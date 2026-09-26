@@ -62,7 +62,8 @@ export interface ReviewFindingDisposition {
   status: "Accepted risk" | `Rejected: ${string}`;
   // The severity the person decided on. The fingerprint predates it and does
   // not cover severity, so a finding re-raised at another severity is asked
-  // again. Absent on dispositions recorded before it was bound.
+  // again. Absent on dispositions recorded before it was bound, which
+  // therefore no longer carry: nothing proves the severity they were about.
   severity?: string;
 }
 
@@ -338,7 +339,7 @@ export function hydrateReviewArtifactContexts(
       const disposition = dispositions.get(dispositionKey(finding));
       if (
         disposition?.fingerprint === finding.fingerprint &&
-        (disposition.severity === undefined || disposition.severity === finding.severity)
+        disposition.severity === finding.severity
       ) {
         return { ...finding, status: disposition.status };
       }

@@ -951,7 +951,7 @@ describe("t304 executable review brief scenarios", () => {
       .toMatchObject([{ id: "R-01", status: "Rejected: Not worth it", severity: "Critical" }]);
   });
 
-  test("a disposition recorded before severity was bound still matches on content alone", () => {
+  test("a disposition recorded before severity was bound asks the person again", () => {
     const { proj, artifact } = requirementProject([ROW_NEW]);
     const stage = findStageBySlug("requirements-analysis")!;
     const [finding] = readReviewArtifactContexts(proj, stage)[0].findings;
@@ -966,12 +966,20 @@ describe("t304 executable review brief scenarios", () => {
       },
       proj,
     );
-    const carried = ROW_NEW.replace("| New |", "| Accepted risk |").replace("| Minor |", "| Major |");
-    const hydrated = hydrateReviewArtifactContexts(
-      [parseReviewArtifact(reviewMarkdown("READY", [carried], 2), relative(proj, artifact).replaceAll("\\", "/"))!],
-      readReviewFindingDispositions(proj, stage.slug),
-    );
-    expect(hydrated[0].findings[0].status).toBe("Accepted risk");
+    const artifactPath = relative(proj, artifact).replaceAll("\\", "/");
+    const reRead = (row: string) =>
+      hydrateReviewArtifactContexts(
+        [parseReviewArtifact(reviewMarkdown("READY", [row], 2), artifactPath)!],
+        readReviewFindingDispositions(proj, stage.slug),
+      )[0].findings[0].status;
+    // Nothing proves which severity it was about, so neither an escalation nor
+    // the same severity inherits it; the person decides once more.
+    expect(reRead(ROW_NEW.replace("| New |", "| Accepted risk |").replace("| Minor |", "| Major |")))
+      .toBe("Unresolved");
+    expect(reRead(ROW_NEW.replace("| New |", "| Accepted risk |"))).toBe("Unresolved");
+    // Approving then records the person's decision with its severity, which carries.
+    expect(JSON.parse(acceptedRiskDispositionField(proj, stage)!).dispositions)
+      .toMatchObject([{ id: "R-01", status: "Accepted risk", severity: "Minor" }]);
   });
 
   test("Request Changes records only explicitly rejected findings with the exact reason", () => {
