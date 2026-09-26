@@ -721,7 +721,9 @@ the validator's `nearest_stock[0]` scope and move one only when the evidence
 gives a reason, as a SKIP needs one (see "Scope settings" in `composing.md`).
 No value removes a gate, Plan Approval, a required question, or the audit
 trail, and a global kill switch such as `AIDLC_DISABLE_SENSORS=1` still forces
-its ceremony off whatever the scope says. The validator rejects an unknown key,
+its ceremony off whatever the scope says: when the validator's advisories name
+one forcing an `on` value off on this machine, say so beside that value in the
+settings row, because the scope stores `on` but the ceremony will not run. The validator rejects an unknown key,
 a missing key, or any other word, echoes the accepted values as
 `scope_settings`, and names what they switch off in `summary.off`. Once the four
 values are chosen, run `validate-grid` on the final grid with them and with
@@ -740,12 +742,18 @@ as a Guard Policy flip: convert it to `mode: "custom"` with a custom
 of them on or off is not a stage flip and a recompose cannot land it: leave it
 out of `changes` and name the per-intent switch the human types instead
 (`/aidlc --sensors on|off`, `--learnings on|off`, or `--summary-confirmation
-on|off`; `$aidlc` on Codex). Reviews only go down that way: `--review
-advisory|none` lowers them, and `--review adversarial` clears an earlier
-lowering but never lifts the running scope's `review_cap`. For stronger
-reviews than that cap allows, name the cap and give the one command that lifts
-both limits: `/aidlc --scope <name> --review adversarial`, a change to a scope
-whose `review_cap` allows them (it also recalculates the pending stages), with
+on|off`; `$aidlc` on Codex). Before naming an `on` switch, read the effective
+value with `{{INVOKE}} engine config get <sensors|learnings|summary-confirmation>`:
+when it reports `from env AIDLC_DISABLE_<NAME>`, that kill switch wins over
+every intent and scope value, so say so and name what clears it (unset the
+environment variable, or `{{INVOKE}} config flags --clear-bypass
+AIDLC_DISABLE_<NAME>` for a recorded one) instead of the `on` switch.
+Reviews only go down that way: `--review advisory|none` lowers them, and
+`--review adversarial` clears an earlier lowering but
+never lifts the running scope's `review_cap`. For stronger reviews than that
+cap allows, name the cap and give the one command that lifts both limits:
+`/aidlc --scope <name> --review adversarial`, a change to a scope whose
+`review_cap` allows them (it also recalculates the pending stages), with
 `--review adversarial` in the same command because a scope change alone keeps
 an earlier lowering. Then say what reviews will run: each stage's own review
 class, up to the new scope's cap. Never offer `--review` alone as the way past

@@ -224,7 +224,9 @@ an absent or malformed field falls back to the scope instead of blocking the run
 The composer proposes these three, plus the scope's `review_cap`, at the compose
 gate. A matched proposal shows the stock scope's own values; you can flip any of
 them before approving, and a custom scope stores the approved values in its
-frontmatter, so every new intent on it starts with those values.
+frontmatter, so every new intent on it starts with those values. A kill switch
+still wins: when one forces an `on` value off on this machine, the gate marks it,
+and mid-workflow the composer names the switch to clear rather than an `on` flag.
 
 These switches do not remove approval gates, Plan Approval, human-turn
 authority, audit, or team cross-unit write protection. Classic turns off

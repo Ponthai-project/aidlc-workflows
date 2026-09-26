@@ -149,7 +149,9 @@ ceremony runs inside them. Every front/report proposal names all four in its
   authority, or the audit trail. A global kill switch
   (`AIDLC_DISABLE_SENSORS=1`, `AIDLC_DISABLE_LEARNINGS=1`,
   `AIDLC_DISABLE_SUMMARY_CONFIRMATION=1`) still forces its ceremony off
-  whatever the scope says.
+  whatever the scope says. The validator names one that forces an `on` value
+  off on this machine; mark that value in the gate row, since the scope stores
+  `on` but the ceremony will not run until the switch is cleared.
 - The human sees the four values as one gate row and can flip any of them
   before approving. A flip on a matched proposal is an edit: convert it to a
   custom scope that declares the values, the same path a Guard Policy flip
@@ -159,7 +161,12 @@ ceremony runs inside them. Every front/report proposal names all four in its
   to turn one on or off, leave it out of the stage delta and name the
   per-intent switch the human types: `/aidlc --sensors on|off`,
   `--learnings on|off`, or `--summary-confirmation on|off` (`$aidlc` on
-  Codex). Reviews only go down that way: `--review advisory|none` lowers them,
+  Codex). Before naming an `on` switch, read the effective value (`engine
+  config get <key>`): when a kill switch supplies it (`from env
+  AIDLC_DISABLE_<NAME>`), the switch wins over every intent and scope value,
+  so name the switch and what clears it (unset the variable, or
+  `config flags --clear-bypass AIDLC_DISABLE_<NAME>` for a recorded one)
+  instead. Reviews only go down that way: `--review advisory|none` lowers them,
   and `--review adversarial` never lifts the running scope's `review_cap`. For
   stronger reviews than that cap allows, name the cap and the one command that
   lifts it: `/aidlc --scope <name> --review adversarial`, to a scope whose

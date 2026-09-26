@@ -1,6 +1,7 @@
 // covers: function:validateScopeSettings, function:scopeSettingsOffList,
 // function:ceremonyOffList, function:scopeSettingsOf,
 // function:stockSettingsAdvisory, function:composerProposalErrors,
+// function:killSwitchAdvisories, subcommand:aidlc-utility:config-get,
 // subcommand:aidlc-graph:validate-grid,
 // subcommand:aidlc-utility:scope-change
 //
@@ -17,8 +18,9 @@
 // the runtime reads, and its off list agrees with the one the gate showed.
 // Mid-workflow the settings are per-intent switches: the route never offers
 // --review as a way to lift a scope's review cap (an override only lowers), the
-// route past a cap is one scope change that also clears a stored lowering, and
-// a settings-only request presents no gate and runs no recompose.
+// route past a cap is one scope change that also clears a stored lowering, an
+// `on` switch loses to a kill switch (so the route names the switch instead),
+// and a settings-only request presents no gate and runs no recompose.
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -26,6 +28,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   composerProposalErrors,
+  killSwitchAdvisories,
   nearestStockScopes,
   SCOPE_SETTING_KEYS,
   scopeSettingsOf,
@@ -33,6 +36,8 @@ import {
   validateScopeSettings,
 } from "../../core/tools/aidlc-graph.ts";
 import {
+  CEREMONY_ENV,
+  CEREMONY_KEYS,
   ceremonyOffList,
   ceremonyPolicyValues,
   loadScopeMapping,
@@ -306,6 +311,60 @@ describe("t349 (4b) a routed proposal binds what the gate shows to what runs", (
   });
 });
 
+describe("t349 (4c) a kill switch wins over an on setting, at the gate and mid-workflow", () => {
+  const ALL_ON = { sensors: "on", learnings: "on", summary_confirmation: "on", review_cap: "adversarial" } as const;
+  const switches = (on: string[]) =>
+    Object.fromEntries(CEREMONY_KEYS.map((key) => [CEREMONY_ENV[key], on.includes(key) ? "1" : "0"]));
+
+  test("killSwitchAdvisories names each on ceremony a switch forces off, and nothing else", () => {
+    expect(killSwitchAdvisories({ ...ALL_ON }, switches([]))).toEqual([]);
+    expect(killSwitchAdvisories({ ...ALL_ON }, switches(["sensors"]))).toEqual([
+      "sensors is on in these settings, but AIDLC_DISABLE_SENSORS forces it off on this machine; " +
+        "the scope still stores on, and the ceremony runs once that switch is cleared.",
+    ]);
+    const all = killSwitchAdvisories({ ...ALL_ON }, switches([...CEREMONY_KEYS]));
+    expect(all.map((line) => line.split(" ")[0])).toEqual([...CEREMONY_KEYS]);
+    // An off setting is already off: the switch changes nothing the gate shows.
+    expect(killSwitchAdvisories({ ...QUICK_FIX }, switches([...CEREMONY_KEYS]))).toEqual([
+      "summary_confirmation is on in these settings, but AIDLC_DISABLE_SUMMARY_CONFIRMATION forces it off on this machine; " +
+        "the scope still stores on, and the ceremony runs once that switch is cleared.",
+    ]);
+  });
+
+  test("validate-grid reports the switch beside a routed proposal", () => {
+    const proj = project();
+    writeFileSync(join(proj, "p.json"), JSON.stringify({ stages: featureGrid(), scopeSettings: ALL_ON, guardPolicy: "relaxed" }));
+    const run = spawnSync(BUN, [
+      GRAPH_TOOL, "validate-grid", "--proposal", join(proj, "p.json"), "--custom", "--project-dir", proj,
+    ], { encoding: "utf-8", env: { ...process.env, CLAUDE_PROJECT_DIR: proj, ...switches(["learnings"]) } });
+    expect(run.status, run.stdout + run.stderr).toBe(0);
+    const advisories: string[] = JSON.parse(run.stdout).advisories;
+    expect(advisories.filter((line) => line.includes("forces it off on this machine"))).toEqual([
+      "learnings is on in these settings, but AIDLC_DISABLE_LEARNINGS forces it off on this machine; " +
+        "the scope still stores on, and the ceremony runs once that switch is cleared.",
+    ]);
+  });
+
+  test("mid-workflow, an on switch is recorded but the kill switch keeps each ceremony off", () => {
+    const flags: Record<string, string> = {
+      sensors: "sensors",
+      learnings: "learnings",
+      summary_confirmation: "summary-confirmation",
+    };
+    for (const key of CEREMONY_KEYS) {
+      const proj = project();
+      seedStateFile(proj, join(FIXTURES_DIR, "state-mid-ideation.md"));
+      const env = { ...process.env, CLAUDE_PROJECT_DIR: proj, ...switches([key]) };
+      const set = spawnSync(BUN, [UTIL, "config-change", `--${flags[key]}`, "on", "--project-dir", proj], { encoding: "utf-8", env });
+      expect(set.status, key + set.stdout + set.stderr).toBe(0);
+      const got = spawnSync(BUN, [UTIL, "config-get", flags[key], "--project-dir", proj], { encoding: "utf-8", env });
+      expect(got.status, key + got.stdout + got.stderr).toBe(0);
+      // This is the reading the composer checks before it names an on switch.
+      expect(got.stdout.trim(), key).toBe(`off (from env ${CEREMONY_ENV[key]})`);
+    }
+  });
+});
+
 describe("t349 (5) a custom scope written with the approved settings runs with them", () => {
   test("the resolvers read each value from the scope file and agree with the gate's off list", () => {
     const proj = createTestProject();
@@ -384,6 +443,8 @@ describe("t349 (6) every composer surface names the settings contract", () => {
       expect(text, surface).toMatch(/never lifts the running scope's `?review_cap`?/);
       // The way past the cap clears a stored lowering in the same command.
       expect(text, surface).toContain("--scope <name> --review adversarial");
+      // An on switch is advised only after checking that no kill switch wins.
+      expect(text, surface).toContain("AIDLC_DISABLE_<NAME>");
     }
   });
 

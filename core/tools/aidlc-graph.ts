@@ -59,6 +59,7 @@ import {
   _resetStageGraphForTests,
   auditLockOwnedByProcess,
   type AgentMetadata,
+  CEREMONY_ENV,
   CEREMONY_KEYS,
   type CeremonyKey,
   type CeremonySetting,
@@ -89,6 +90,7 @@ import {
   noteGuardPolicyRename,
   parseGuardPolicy,
   resolveProjectDir,
+  resolveProjectFlag,
   resolveWorkflowSelection,
   type ReviewClass,
   scalarField,
@@ -1740,6 +1742,22 @@ export function composerProposalErrors(
     }
   }
   return errors;
+}
+
+/** Advisories for `on` settings a kill switch forces off here. The scope stores
+ *  the value, but the ceremony stays off wherever the switch is set, so the gate
+ *  must not present it as running. */
+export function killSwitchAdvisories(
+  settings: ScopeSettings,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  return CEREMONY_KEYS.filter(
+    (key) => settings[key] === "on" && resolveProjectFlag(CEREMONY_ENV[key], env) === "1",
+  ).map(
+    (key) =>
+      `${key} is on in these settings, but ${CEREMONY_ENV[key]} forces it off on this machine; ` +
+      "the scope still stores on, and the ceremony runs once that switch is cleared.",
+  );
 }
 
 /** The advisory for settings that match no stock scope sharing the proposal's
@@ -3457,6 +3475,7 @@ const COMMANDS: Record<string, Handler> = {
           ? stockSettingsAdvisory(checked.settings, r.nearest_stock ?? [])
           : null;
         if (advisory !== null) r.advisories.push(advisory);
+        r.advisories.push(...killSwitchAdvisories(checked.settings));
       }
     }
     if (matched !== undefined || custom) {
