@@ -555,6 +555,8 @@ describe("t242 state-transition ownership guard", () => {
       "tcsh -c 'bun .cursor/tools/aidlc-orchestrate.ts next'",
       "busybox sh -c 'aidlc next'",
       "toybox timeout 5 aidlc next",
+      `cmd='aidlc next'; busybox sh -c "$cmd"`,
+      'sudo sh -c "$x"',
       "eval 'bun .cursor/tools/aidlc-utility.ts status'",
       `node --eval 'require("node:child_process").spawnSync("aidlc", ["next"])'`,
       `python3 -c 'import subprocess; subprocess.run(["bun", ".cursor/tools/aidlc-orchestrate.ts", "next"])'`,
@@ -576,6 +578,12 @@ describe("t242 state-transition ownership guard", () => {
     for (const command of [
       "git status",
       "busybox ls -la",
+      // A wrapper is judged by the program it runs, so a search stays a search.
+      "busybox grep aidlc README.md",
+      "find . -name '*.md' | xargs grep -l aidlc",
+      "timeout 60 grep -rn aidlc src",
+      "sh -c 'grep -rn aidlc src'",
+      "timeout 300 sh -c 'npm test'",
       "git stash",
       "git reset --hard",
       "git checkout -b feature/aidlc",

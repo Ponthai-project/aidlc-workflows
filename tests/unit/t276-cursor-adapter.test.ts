@@ -1664,6 +1664,9 @@ describe("t276 cursor adapter payload conversion", () => {
       'npm test -- --grep "$PATTERN"',
       "git checkout -b feature/aidlc",
       "cd aidlc && ls && cd .. && git status",
+      // Wrappers are judged by the program they run.
+      "find . -name '*.md' | xargs grep -l aidlc",
+      "busybox grep aidlc README.md",
     ]) {
       expectAllowJson(shell(command), command);
     }
@@ -1675,6 +1678,7 @@ describe("t276 cursor adapter payload conversion", () => {
       "bash -c 'aidlc next'",
       "csh -c 'aidlc next'",
       "busybox sh -c 'aidlc next'",
+      `cmd='aidlc next'; busybox sh -c "$cmd"`,
     ]) {
       const denied = JSON.parse(shell(command).stdout) as {
         permission?: string;

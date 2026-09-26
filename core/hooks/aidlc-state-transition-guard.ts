@@ -17,6 +17,7 @@ import {
   resolveProjectDirFromHook,
   writeGuardStoodAside,
 } from "../tools/aidlc-lib.ts";
+import { shellCommandInvocationDetails } from "./review-freeze-command.ts";
 import { refuseRuntimeIntegrityViolation } from "./runtime-integrity.ts";
 
 export const BLOCKED_STATE_TRANSITIONS = new Set([
@@ -1057,9 +1058,12 @@ function backgroundReadDispatcher(rawArgs: string[]): boolean {
 
 const SCRIPT_RUNNER =
   /^(?:bun|node|deno|python(?:\d+(?:\.\d+)*)?|ruby|perl|php|(?:ba|da|a|k|z|fi)?sh|t?csh|pwsh|powershell)(?:\.exe)?$/i;
-// Wrappers that run their arguments as a command.
+// The shells whose -c bodies the classifier below parses as commands.
+const POSIX_SHELL = /^(?:ba|da|a|k|z)?sh(?:\.exe)?$/;
+// Hosts that run their arguments as a command and that the shared parser
+// does not unwrap.
 const EXECUTION_HOST =
-  /^(?:eval|xargs|timeout|sudo|doas|stdbuf|setsid|watch|busybox|toybox|npx|bunx|pnpx|npm|pnpm|yarn|cmd)(?:\.exe)?$/i;
+  /^(?:watch|npx|bunx|pnpx|npm|pnpm|yarn|cmd)(?:\.exe)?$/i;
 const DISPATCHER_NAME = /^aidlc(?:-(?:darwin|linux|windows)-[a-z0-9]+(?:-musl)?)?(?:\.(?:exe|cmd|bat))?$/i;
 const AIDLC_SCRIPT_NAME = /^aidlc(?:-[a-z0-9-]+)?\.ts$/i;
 // The dispatcher (release binaries included), an AIDLC tool script, or an
@@ -1070,6 +1074,10 @@ const AIDLC_ENTRYPOINT = new RegExp([
   String.raw`(?<![A-Za-z0-9_])aidlc(?:-[a-z0-9-]+)?\.ts(?![A-Za-z0-9_])`,
   String.raw`\.(?:claude|cursor|codex|kiro|aidlc)[\\/]+(?:tools|hooks)(?![A-Za-z0-9_-])`,
 ].join("|"), "i");
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
 
 function aidlcEntrypointInvocation(executable: string, argv: string[]): boolean {
   if (DISPATCHER_NAME.test(executable) || AIDLC_SCRIPT_NAME.test(executable)) return true;
@@ -1083,9 +1091,32 @@ function aidlcEntrypointInvocation(executable: string, argv: string[]): boolean 
 
 // A wrapper or interpreter handed an AIDLC entrypoint (`timeout 60 aidlc
 // next`, `sh -c 'aidlc next'`) would run it outside the literal allowlist.
-function hostedAidlcEntrypoint(executable: string, argv: string[]): string | null {
+function hostedAidlcEntrypoint(
+  segment: string,
+  executable: string,
+  argv: string[],
+  depth: number,
+  background: BackgroundInspection,
+): string | null {
+  // Wrappers the shared parser unwraps (sudo, timeout, xargs, busybox, ...)
+  // are judged by the program they run, so `xargs grep aidlc` stays a search.
+  const [wrapped] = shellCommandInvocationDetails(segment);
+  if (wrapped?.launchers?.length && !wrapped.ambiguous) {
+    const program = [wrapped.executable ?? wrapped.name, ...wrapped.args];
+    if (aidlcEntrypointInvocation(commandBasename(program[0]), program)) {
+      return `${wrapped.launchers[0]} running an AIDLC command`;
+    }
+    return delegatedLifecycleCommandAtDepth(
+      program.map(shellQuote).join(" "),
+      depth + 1,
+      background,
+    );
+  }
   let operands: string[];
-  if (SCRIPT_RUNNER.test(executable) || EXECUTION_HOST.test(executable)) {
+  if (POSIX_SHELL.test(executable)) {
+    // The classifier parses these shells' -c bodies itself.
+    return null;
+  } else if (SCRIPT_RUNNER.test(executable) || EXECUTION_HOST.test(executable) || wrapped?.ambiguous) {
     operands = argv.slice(1);
   } else if (executable === "find") {
     const exec = argv.findIndex((word) => /^-(?:exec|execdir|ok|okdir)$/.test(word));
@@ -1160,7 +1191,7 @@ function delegatedLifecycleCommandAtDepth(
           ? backgroundAidlcInvocation(command.trim(), background.installedScript)
           : "nested AIDLC command beyond background read policy";
       }
-      const hosted = hostedAidlcEntrypoint(executable, argv);
+      const hosted = hostedAidlcEntrypoint(segment, executable, argv, depth, background);
       if (hosted !== null) return hosted;
     }
     if (executable === "eval") {

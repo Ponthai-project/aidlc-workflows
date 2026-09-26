@@ -928,10 +928,14 @@ segment:
   the dispatcher, the script/verb a supported read-only command, and the
   installed script identity checked by the Cursor adapter. Nested in `sh -c`,
   `eval`, a substitution, or a larger command, it is refused.
-- A script runner or execution host (`bun`, `node`, `python`, `sh`, `pwsh`,
-  `eval`, `xargs`, `timeout`, `sudo`, `npx`, `npm`, `find -exec`, and similar)
-  whose operands name an AIDLC entrypoint or a harness `tools`/`hooks`
-  directory is refused.
+- A wrapper the shared shell parser unwraps (`sudo`, `timeout`, `xargs`,
+  `stdbuf`, `busybox`, `toybox`, and similar) is judged by the program it
+  runs: an AIDLC entrypoint is refused, and any other program is classified as
+  if it ran directly, so `xargs grep aidlc` stays a search. POSIX shell `-c`
+  bodies and `eval` are parsed the same way. Other interpreters and hosts
+  (`bun`, `node`, `python`, `csh`, `pwsh`, `npx`, `npm`, `find -exec`, and
+  similar) are refused when their operands name an AIDLC entrypoint or a
+  harness `tools`/`hooks` directory.
 - The delegated classifier still refuses dynamic executables and dynamic
   `sh -c`/`eval` bodies. Plain commands (`cat`, `grep`, `git`) may name
   anything in their operands.
