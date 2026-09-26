@@ -300,6 +300,7 @@ const CONFIG_VALUE_FLAGS = new Set([
   "--reviewing-effort",
   "--save-as",
   "--sensor-timeout-ms",
+  "--question-retention-days",
   "--swarm",
   "--hook-debug",
   "--bypass",
@@ -320,6 +321,7 @@ const CHOICE_VALUE_FLAGS = new Set([
   "--plugins",
   "--project-dir",
   "--sensor-timeout-ms",
+  "--question-retention-days",
   "--swarm",
 ]);
 
@@ -2499,6 +2501,7 @@ function validateChoiceArgs(
         "--plan-token",
         "--project-dir",
         "--sensor-timeout-ms",
+        "--question-retention-days",
         "--swarm",
       ])
     : new Set([
@@ -2534,6 +2537,7 @@ function validateChoiceArgs(
         "--hook-debug",
         "--reset",
         "--sensor-timeout-ms",
+        "--question-retention-days",
         "--swarm",
       ]
     : ["--completions", "--mcp", "--plugins", "--reset"];
@@ -2551,6 +2555,7 @@ function choiceHelp(section: ChoiceSection): string {
         "  --swarm <on|off>",
         "  --hook-debug <on|off>",
         "  --sensor-timeout-ms <positive-integer>",
+        "  --question-retention-days <days|unlimited>",
         "  --bypass <AIDLC_SKIP_*|AIDLC_DISABLE_*>",
         "  --clear-bypass <AIDLC_SKIP_*|AIDLC_DISABLE_*>",
         "",
@@ -2663,6 +2668,18 @@ function buildFlagsRecord(
     }
     next.sensorTimeoutMs = parsed;
   }
+  const retention = valueAfter(argv, "--question-retention-days");
+  if (retention === "unlimited") {
+    delete next.questionRetentionDays;
+  } else if (retention !== undefined) {
+    const parsed = Number(retention);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new Error(
+        "--question-retention-days must be a positive integer or unlimited",
+      );
+    }
+    next.questionRetentionDays = parsed;
+  }
   const bypasses = new Set(next.bypasses ?? []);
   for (const name of valuesAfter(argv, "--bypass")) {
     if (!(RECORDABLE_PROJECT_BYPASSES as readonly string[]).includes(name)) {
@@ -2764,6 +2781,7 @@ function showChoiceSection(
       ["AIDLC_USE_SWARM", "swarm"],
       ["AIDLC_HOOK_DEBUG", "hookDebug"],
       ["AIDLC_SENSOR_TIMEOUT_MS", "sensorTimeoutMs"],
+      ["AIDLC_QUESTION_RETENTION_DAYS", "questionRetentionDays"],
     ].map(([envName, field]) => [
       envName,
       Object.hasOwn(process.env, envName)
@@ -2874,6 +2892,11 @@ function showChoiceSection(
         ? effective.AIDLC_SENSOR_TIMEOUT_MS ?? "inherit"
         : resolved.flags?.sensorTimeoutMs ?? "inherit"
     } ${sourceLabel("AIDLC_SENSOR_TIMEOUT_MS")}\n`;
+    output += `  Question retention days: ${
+      sources.AIDLC_QUESTION_RETENTION_DAYS === "env"
+        ? effective.AIDLC_QUESTION_RETENTION_DAYS ?? "unlimited"
+        : resolved.flags?.questionRetentionDays ?? "unlimited"
+    } ${sourceLabel("AIDLC_QUESTION_RETENTION_DAYS")}\n`;
     for (const bypass of resolved.flags?.bypasses ?? []) {
       output += `  Bypass enabled: ${bypass} ${sourceLabel(bypass)}\n`;
     }
@@ -2979,6 +3002,10 @@ function choiceWizard(
     }
     const timeout = configPrompt("Sensor timeout ms [Enter keep]:")?.trim();
     if (timeout) args.push("--sensor-timeout-ms", timeout);
+    const retention = configPrompt(
+      "Question retention days [positive integer/unlimited, Enter keep]:",
+    )?.trim();
+    if (retention) args.push("--question-retention-days", retention);
     return {
       next: buildFlagsRecord(targetCurrentFlags, args, selected.root),
       plugins: readPluginSelection(selected.root),
@@ -3068,6 +3095,7 @@ function prepareChoiceSection(
         "--hook-debug",
         "--reset",
         "--sensor-timeout-ms",
+        "--question-retention-days",
         "--swarm",
       ]
     : ["--completions", "--mcp", "--plugins", "--reset"];
@@ -3140,7 +3168,7 @@ function prepareChoiceSection(
   } else {
     if (!configInputIsTty()) {
       const flags = section === "flags"
-        ? "--default-scope, --swarm, --hook-debug, --sensor-timeout-ms, --bypass, or --reset"
+        ? "--default-scope, --swarm, --hook-debug, --sensor-timeout-ms, --question-retention-days, --bypass, or --reset"
         : "--plugins, --mcp, --completions, or --reset";
       emitResult(
         usage(
@@ -6725,6 +6753,7 @@ function handleSettingsOnlySection(
     "--hook-debug",
     "--reset",
     "--sensor-timeout-ms",
+    "--question-retention-days",
     "--swarm",
   ];
   const mutationFlags = section === "models" ? modelMutationFlags : flagMutationFlags;
