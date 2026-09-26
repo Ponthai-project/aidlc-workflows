@@ -1059,7 +1059,7 @@ const SCRIPT_RUNNER =
   /^(?:bun|node|deno|python(?:\d+(?:\.\d+)*)?|ruby|perl|php|(?:ba|da|a|k|z|fi)?sh|t?csh|pwsh|powershell)(?:\.exe)?$/i;
 // Wrappers that run their arguments as a command.
 const EXECUTION_HOST =
-  /^(?:eval|xargs|timeout|sudo|doas|stdbuf|setsid|watch|npx|bunx|pnpx|npm|pnpm|yarn|cmd)(?:\.exe)?$/i;
+  /^(?:eval|xargs|timeout|sudo|doas|stdbuf|setsid|watch|busybox|toybox|npx|bunx|pnpx|npm|pnpm|yarn|cmd)(?:\.exe)?$/i;
 const DISPATCHER_NAME = /^aidlc(?:-(?:darwin|linux|windows)-[a-z0-9]+(?:-musl)?)?(?:\.(?:exe|cmd|bat))?$/i;
 const AIDLC_SCRIPT_NAME = /^aidlc(?:-[a-z0-9-]+)?\.ts$/i;
 // The dispatcher (release binaries included), an AIDLC tool script, or an

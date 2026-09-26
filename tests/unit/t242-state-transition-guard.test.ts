@@ -553,6 +553,8 @@ describe("t242 state-transition ownership guard", () => {
       "bash -lc 'aidlc next'",
       "csh -c 'aidlc next'",
       "tcsh -c 'bun .cursor/tools/aidlc-orchestrate.ts next'",
+      "busybox sh -c 'aidlc next'",
+      "toybox timeout 5 aidlc next",
       "eval 'bun .cursor/tools/aidlc-utility.ts status'",
       `node --eval 'require("node:child_process").spawnSync("aidlc", ["next"])'`,
       `python3 -c 'import subprocess; subprocess.run(["bun", ".cursor/tools/aidlc-orchestrate.ts", "next"])'`,
@@ -573,6 +575,7 @@ describe("t242 state-transition ownership guard", () => {
     // Writes under aidlc/ are refused by the Cursor adapter, not here.
     for (const command of [
       "git status",
+      "busybox ls -la",
       "git stash",
       "git reset --hard",
       "git checkout -b feature/aidlc",
