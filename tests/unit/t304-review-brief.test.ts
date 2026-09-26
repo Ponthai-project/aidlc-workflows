@@ -977,6 +977,10 @@ describe("t304 executable review brief scenarios", () => {
     expect(reRead(ROW_NEW.replace("| New |", "| Accepted risk |").replace("| Minor |", "| Major |")))
       .toBe("Unresolved");
     expect(reRead(ROW_NEW.replace("| New |", "| Accepted risk |"))).toBe("Unresolved");
+    // The originally recorded `New` row is open again, not new: a person decided it.
+    expect(reRead(ROW_NEW)).toBe("Unresolved");
+    // A reviewer that now finds it fixed is believed.
+    expect(reRead(ROW_NEW.replace("| New |", "| Resolved |"))).toBe("Resolved");
     // Approving then records the person's decision with its severity, which carries.
     expect(JSON.parse(acceptedRiskDispositionField(proj, stage)!).dispositions)
       .toMatchObject([{ id: "R-01", status: "Accepted risk", severity: "Minor" }]);

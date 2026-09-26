@@ -337,11 +337,13 @@ export function hydrateReviewArtifactContexts(
     ...context,
     findings: context.findings.map((finding) => {
       const disposition = dispositions.get(dispositionKey(finding));
-      if (
-        disposition?.fingerprint === finding.fingerprint &&
-        disposition.severity === finding.severity
-      ) {
-        return { ...finding, status: disposition.status };
+      if (disposition?.fingerprint === finding.fingerprint) {
+        if (disposition.severity === finding.severity) {
+          return { ...finding, status: disposition.status };
+        }
+        // A person decided this finding at another (or an unrecorded) severity:
+        // it is open again, and not new. A reviewer's fresh `Resolved` stands.
+        return finding.status === "Resolved" ? finding : { ...finding, status: "Unresolved" };
       }
       // `Accepted risk` and `Rejected: <reason>` are decisions a person records
       // at the gate. A reviewer that writes one is not that person, so without

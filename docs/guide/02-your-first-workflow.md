@@ -181,7 +181,12 @@ The stable finding ID lets later checks show whether the same concern was
 resolved, remains open, or was accepted as a risk. Choose **Approve** to
 continue with any open findings accepted, or **Request Changes** to return to
 the listed artifacts. An approval records `Accepted risk` outside the reviewed
-artifact, so a later re-check preserves that decision. When rejecting a finding
+artifact, so a later re-check preserves that decision while the finding reads
+the same at the same severity; if the reviewer rewrites it or changes its
+severity, it is open again for you to decide. Decisions recorded by a release
+before severity was recorded carry no severity, so after upgrading such a
+finding shows as open once more and your next decision carries from then on.
+When rejecting a finding
 as inapplicable, give its ID and reason; ordinary revision feedback leaves it
 open. See [Interaction Modes](07-interaction-modes.md) for details on the
 revision process.
