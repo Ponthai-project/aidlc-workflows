@@ -1,58 +1,3 @@
-node_modules/
-.claude/CLAUDE.md
-.claude/settings.json
-.claude/settings.local.json
-.env
-.DS_Store
-._*
-
-# Bun transient compilation artifacts
-*.bun-build
-
-# Generated AI-DLC projections (materialized locally by scripts/package.ts)
-/dist/
-/dist-release/
-build/
-
-# Zensical documentation-site build output and env (`uv run zensical build`;
-# deployed by .github/workflows/docs.yml, never committed)
-/site/
-/.cache/
-/.venv/
-
-# Test verbose logs
-tests/logs/
-
-# Claude worktrees
-.claude/worktrees
-
-# AIDLC runtime state (Construction worktrees + future runtime artefacts).
-# Anchored to repo root; distinct from .claude/worktrees above which is
-# the framework-development worktree convention.
-/.aidlc/
-/aidlc/spaces/*/intents/.aidlc-*
-
-# Local scratch — explainers, throwaway HTML, etc. (claude writes explainers here)
-tmp/
-
-# RFC drafts and implementation plans are working notes, never documentation.
-# Draft them in tmp/ (or a GitHub issue via the RFC template); docs/ never
-# carries an rfcs/ directory.
-/docs/rfcs/
-
-# Local Claude Code memory (personal project preferences, not checked in)
-CLAUDE.local.md
-
-# Local-only — pins shfmt formatting to project style via a local
-# auto-format tool. Not committed; contributors who do not use it do not need it.
-.editorconfig
-
-# Local-only formatter/linter cache — match at any depth so a cache
-# directory anywhere in the repo (root, dist/, tools/, etc.) is ignored.
-**/.pi-lens/
-.pi-lens/
-
-# BEGIN AI-DLC:gitignore
 # Logs
 logs
 *.log
@@ -137,4 +82,3 @@ aidlc/diagnostics/
 # which was proven to corrupt the multi-line audit blocks) ·
 # aidlc/spaces/*/intents/*/<phase>/<stage>/*.md (artifacts + diary).
 .claude/settings.local.json
-# END AI-DLC:gitignore
