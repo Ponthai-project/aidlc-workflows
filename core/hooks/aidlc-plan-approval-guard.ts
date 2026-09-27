@@ -98,6 +98,7 @@ import {
   resolveBoltDag,
   resolveProjectFlag,
   resolveProjectDirFromHook,
+  readSessionBinding,
   resolveWorkflowSelection,
   stateFilePath,
   validSessionId,
@@ -1167,10 +1168,13 @@ function recordGuardDisabled(input: string): void {
 // this evaluation, as hookChildEnv does for hook children. Without it the guard
 // follows process ancestry or the shared cursor, which can name another
 // session's intent: its state decides the call and its record gets the writes.
-function pinPayloadSession(parsed: ClaudeCodeHookInput): () => void {
+// Only a session with a binding is pinned. Worker-scoped ids (a Copilot CLI
+// toolu_* call, an OpenCode child session) have none; pinning them would
+// replace an ancestry that names the owning session with the shared cursor.
+function pinPayloadSession(parsed: ClaudeCodeHookInput, projectDir: string): () => void {
   const sessionId =
     typeof parsed.session_id === "string" ? validSessionId(parsed.session_id) : null;
-  if (!sessionId) return () => {};
+  if (!sessionId || readSessionBinding(projectDir, sessionId) === null) return () => {};
   const previous = {
     AIDLC_SESSION_OVERRIDE: process.env.AIDLC_SESSION_OVERRIDE,
     AIDLC_SESSION_OVERRIDE_SOURCE: process.env.AIDLC_SESSION_OVERRIDE_SOURCE,
@@ -1194,7 +1198,7 @@ export async function run(input: string): Promise<number> {
   } catch {
     return 0; // malformed stdin - fail open
   }
-  const restore = pinPayloadSession(parsed);
+  const restore = pinPayloadSession(parsed, resolveProjectDirFromHook(import.meta.url));
   try {
     return await evaluate(parsed, input);
   } finally {

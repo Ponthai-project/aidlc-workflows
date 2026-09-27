@@ -2296,9 +2296,10 @@ if (fwd.hook === "__audit_and_sensors__") {
 }
 
 // The core guard judges the workflow of the session named in its payload; the
-// routes above build its input from the tool call alone.
-if (fwd.hook === "aidlc-plan-approval-guard.ts" && ide.sessionId?.trim()) {
-  fwd.input.session_id = ide.sessionId.trim();
+// routes above build its input from the tool call alone. Legacy events carry no
+// session id, so send the host-derived identity SessionStart bound instead.
+if (fwd.hook === "aidlc-plan-approval-guard.ts") {
+  fwd.input.session_id = resolvedPlanApprovalSessionId(ide);
 }
 const result = runCore(fwd.hook, fwd.input);
 

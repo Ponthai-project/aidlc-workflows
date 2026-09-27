@@ -2059,6 +2059,32 @@ describe("t218 Kiro IDE plan-approval enforcement", () => {
     }
   });
 
+  test("legacy plan-approval guard calls carry the host-derived session id", () => {
+    // Legacy USER_PROMPT events have no session_id; SessionStart binds the id
+    // derived from the IDE host, so the guard must receive that same id.
+    const dir = scratchProject(true);
+    try {
+      const capture = join(dir, "guard-input.jsonl");
+      writeFileSync(join(dir, ".kiro", "hooks", "aidlc-plan-approval-guard.ts"), recordingGuard(capture), "utf-8");
+      const env = { AIDLC_COMPILED_EXECUTABLE: "" };
+      for (const payload of [
+        { toolName: "fs_write", toolArgs: { path: join(dir, "src", "a.ts") } },
+        { toolName: "execute_bash", toolArgs: { command: "echo hi" } },
+      ]) {
+        const r = runIde(
+          dir,
+          "plan-approval-guard",
+          JSON.stringify({ ...payload, toolResult: "", toolSuccess: true }),
+          env,
+        );
+        expect(r.code).toBe(0);
+      }
+      expect(forwardedSessions(capture)).toEqual([legacySessionId(dir), legacySessionId(dir)]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("populated 1.x PreToolUse write and dispatch payloads are blocked before approval", () => {
     const dir = scratchProject(true);
     try {

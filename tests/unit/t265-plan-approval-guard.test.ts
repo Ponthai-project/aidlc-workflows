@@ -65,6 +65,8 @@ import {
   writeCurrentSessionId,
   writePlanApprovalReceipt,
   writeSessionBinding,
+  writeSessionPidEntry,
+  sessionPidMapDir,
   hooksHealthDir,
   setActiveIntentCursor,
   stateDigest,
@@ -735,6 +737,35 @@ function runHook(
   return { code: r.status ?? -1, stderr: r.stderr ?? "" };
 }
 
+// Two intents, each bound to its own session: intent-a (S-A) is at Code
+// Generation with no plan; intent-b (S-B) is at another stage and holds the
+// shared cursor.
+function seedTwoBoundIntents(proj: string): void {
+  const intents = join(proj, RECORD_REL);
+  const seed = (intent: string, stage: string): void => {
+    mkdirSync(join(intents, intent), { recursive: true });
+    writeFileSync(
+      join(intents, intent, "aidlc-state.md"),
+      `# AI-DLC State Tracking\n\n## Current Status\n- **Lifecycle Phase**: CONSTRUCTION\n- **Current Stage**: ${stage}\n`,
+      "utf-8",
+    );
+  };
+  seed("intent-a", "code-generation");
+  seed("intent-b", "functional-design");
+  mkdirSync(join(intents, "intent-a", "construction", "todo-core", "code-generation"), { recursive: true });
+  setActiveIntentCursor(proj, "intent-a");
+  const stateA = readFileSync(join(intents, "intent-a", "aidlc-state.md"), "utf-8");
+  writeActiveDirectiveMarker(proj, {
+    kind: "run-stage",
+    stage: "code-generation",
+    unit: "todo-core",
+    state_sha256: stateDigest(stateA),
+  });
+  setActiveIntentCursor(proj, "intent-b");
+  writeSessionBinding(proj, "S-A", "default", "intent-a");
+  writeSessionBinding(proj, "S-B", "default", "intent-b");
+}
+
 describe("t265b hook lifecycle", () => {
   // The bytes the approval excludes must never reach the worker, on either path.
   const APPENDIX =
@@ -942,29 +973,7 @@ describe("t265b hook lifecycle", () => {
     // and no process ancestry, only the payload names the caller.
     const proj = scratchProject();
     try {
-      const intents = join(proj, RECORD_REL);
-      const seed = (intent: string, stage: string): void => {
-        mkdirSync(join(intents, intent), { recursive: true });
-        writeFileSync(
-          join(intents, intent, "aidlc-state.md"),
-          `# AI-DLC State Tracking\n\n## Current Status\n- **Lifecycle Phase**: CONSTRUCTION\n- **Current Stage**: ${stage}\n`,
-          "utf-8",
-        );
-      };
-      seed("intent-a", "code-generation");
-      seed("intent-b", "functional-design");
-      mkdirSync(join(intents, "intent-a", "construction", "todo-core", "code-generation"), { recursive: true });
-      setActiveIntentCursor(proj, "intent-a");
-      const stateA = readFileSync(join(intents, "intent-a", "aidlc-state.md"), "utf-8");
-      writeActiveDirectiveMarker(proj, {
-        kind: "run-stage",
-        stage: "code-generation",
-        unit: "todo-core",
-        state_sha256: stateDigest(stateA),
-      });
-      setActiveIntentCursor(proj, "intent-b");
-      writeSessionBinding(proj, "S-A", "default", "intent-a");
-      writeSessionBinding(proj, "S-B", "default", "intent-b");
+      seedTwoBoundIntents(proj);
       const env = { AIDLC_SESSION_OVERRIDE: "", AIDLC_SESSION_OVERRIDE_SOURCE: "" };
       const heartbeat = (intent: string) =>
         join(hooksHealthDir(proj, intent, "default"), "plan-approval-guard.last");
@@ -986,6 +995,23 @@ describe("t265b hook lifecycle", () => {
         expect(r.code).toBe(0);
         expect(r.stderr).not.toContain("TypeError");
       }
+    } finally {
+      rmSync(proj, { recursive: true, force: true });
+    }
+  });
+
+  test("a payload id with no binding does not override the caller's ancestry", () => {
+    // Copilot CLI delegations send per-call toolu_* ids and OpenCode workers
+    // send child-session ids; neither has a session binding. The caller's
+    // ancestry names S-A, so the call is S-A's.
+    const proj = scratchProject();
+    try {
+      seedTwoBoundIntents(proj);
+      writeSessionPidEntry(proj, process.pid, "S-A");
+      const env = { AIDLC_SESSION_OVERRIDE: "", AIDLC_SESSION_OVERRIDE_SOURCE: "" };
+      const r = runHook(proj, { ...WRITE(join(proj, "src", "app.ts")), session_id: "toolu_worker_1" }, env);
+      expect(r.code).toBe(2);
+      rmSync(sessionPidMapDir(proj), { recursive: true, force: true });
     } finally {
       rmSync(proj, { recursive: true, force: true });
     }
