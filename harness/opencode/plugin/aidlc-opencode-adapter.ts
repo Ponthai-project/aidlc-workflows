@@ -563,6 +563,7 @@ export default async ({
               hook_event_name: "PreToolUse",
               tool_name: call.toolName,
               tool_input: call.toolInput,
+              session_id: input.sessionID,
               cwd: directory,
             },
             directory,
@@ -591,6 +592,7 @@ export default async ({
                   .filter((t) => t.length > 0)
                   .join("\n"),
               },
+              session_id: input.sessionID,
               cwd: directory,
             },
             directory,

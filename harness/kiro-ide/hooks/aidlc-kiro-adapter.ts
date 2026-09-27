@@ -2295,6 +2295,11 @@ if (fwd.hook === "__audit_and_sensors__") {
   return 0;
 }
 
+// The core guard judges the workflow of the session named in its payload; the
+// routes above build its input from the tool call alone.
+if (fwd.hook === "aidlc-plan-approval-guard.ts" && ide.sessionId?.trim()) {
+  fwd.input.session_id = ide.sessionId.trim();
+}
 const result = runCore(fwd.hook, fwd.input);
 
 if (target === "session-start" || target === "record-human-turn") {
