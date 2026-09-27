@@ -9842,6 +9842,10 @@
       "minMechanism": "none",
       "coveredBy": [
         {
+          "file": "tests/unit/t-atomic-write-windows.test.ts",
+          "mechanism": "none"
+        },
+        {
           "file": "tests/unit/t286-read-write-boundary.test.ts",
           "mechanism": "none"
         }
@@ -9884,6 +9888,10 @@
       "unitId": "function:writeFileAtomic",
       "minMechanism": "none",
       "coveredBy": [
+        {
+          "file": "tests/unit/t-atomic-write-windows.test.ts",
+          "mechanism": "none"
+        },
         {
           "file": "tests/unit/t270-metrics-transport.test.ts",
           "mechanism": "cli"
