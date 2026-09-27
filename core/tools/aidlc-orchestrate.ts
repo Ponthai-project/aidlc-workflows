@@ -2157,9 +2157,9 @@ function composeDispatchDirective(
       "This is mode in-flight, not matched/custom routing: preserve the current scope, depth, frozen actions, and full effective grid; stock-distance rankings are advisory only and MUST NOT trigger stock-grid adoption. Return the exact approved command delta as changes.skip and changes.add arrays.",
       "A request to turn sensors, learnings, summary confirmation, or reviews on or off is not a stage flip and recompose cannot land it: name the per-intent switch the human types instead (/aidlc --sensors on|off, --learnings on|off, or --summary-confirmation on|off, with $aidlc on Codex), after reading the effective value: when a kill switch supplies it (from env AIDLC_DISABLE_<NAME>), an on switch changes nothing, so name that switch and where it is set instead: config flags --show lists a recorded one as Bypass enabled: <NAME> [local|project|machine], cleared by config flags --clear-bypass <NAME> with that layer's flag (--local, --project, or --global for [machine]) and --yes once no workflow is active (config changes refuse while one is); one --show does not list is a real environment variable, unset where it is set before a new session. --review advisory|none only lowers reviews, and --review adversarial clears a lowering but never lifts the running scope's review_cap: for stronger reviews than that cap, name the cap and the one command that lifts both limits, /aidlc --scope <name> --review adversarial (a scope whose review_cap allows them; a scope change alone keeps an earlier lowering, and it also recalculates the pending stages), and say reviews then run at each stage's own class up to the new cap; never --review alone.",
       "When the composer returns empty changes.skip and changes.add (a settings-only request, or nothing earns a flip), write no marker, present no approval gate, and run no recompose: relay its answer and stop. A mixed request gates only its stage delta and names the setting route beside it.",
-      "BEFORE presenting the gate, write the pending-proposal marker `aidlc/.aidlc-compose-pending` (any content) so the turn can end at the gate; on approve run `bun " +
-        hd +
-        "/tools/aidlc-utility.ts recompose [--skip <changes.skip>] [--add <changes.add>]` (join each nonempty array with commas; omit the flag when its approved array is empty, never pass a bare --skip or --add) and DELETE the marker; on reject/edit-then-resolve delete the marker too. Never write scope registry files for an in-flight proposal.",
+      "BEFORE presenting the gate, write the pending-proposal marker `aidlc/.aidlc-compose-pending` (any content) so the turn can end at the gate; on approve run `" +
+        aidlcDispatcherInvocation("recompose") +
+        " [--skip <changes.skip>] [--add <changes.add>]` (join each nonempty array with commas; omit the flag when its approved array is empty, never pass a bare --skip or --add) and DELETE the marker; on reject/edit-then-resolve delete the marker too. Never write scope registry files for an in-flight proposal.",
     );
   } else {
     parts.push(
@@ -3827,7 +3827,7 @@ function probeMatchedPayload(
 // ahead of the payload, so the conductor copies one short line and never
 // reconstructs anything.
 function steeringNextCommand(receipt: string): string {
-  return `bun ${harnessDir()}/tools/aidlc-orchestrate.ts continue ${receipt}`;
+  return `${aidlcToolInvocation("orchestrate")} continue ${receipt}`;
 }
 
 // A run-stage directive carries its own rules whenever they fit beside it under
@@ -4319,7 +4319,7 @@ function routeNext(args: string[], projectDir: string | undefined): void {
       ? ` --rhythm ${shellArg(flags.claimRhythm)}`
       : "";
     emit(printDirective(
-      `Run \`bun ${harnessDir()}/tools/aidlc-utility.ts ${verb} ${shellArg(unit)}${teamArg}${rhythmArg}\`, ` +
+      `Run \`${aidlcInvocation()} --${verb} ${shellArg(unit)}${teamArg}${rhythmArg}\`, ` +
         "print its output verbatim, then stop. Re-run /aidlc after the claim registry changes.",
     ));
     return;
@@ -4553,7 +4553,7 @@ function routeNext(args: string[], projectDir: string | undefined): void {
     const [verb, ...tail] = argv;
     const suffix = tail.length > 0 ? ` ${tail.map(shellArg).join(" ")}` : "";
     emit(printDirective(
-      `Run \`bun ${harnessDir()}/tools/aidlc-knowledge.ts ${verb}${suffix}\`, print its output verbatim, then stop. This is a terminal utility, NOT workflow work: do NOT run \`next\` and do NOT advance, resume, or run any workflow stage.`,
+      `Run \`${aidlcToolInvocation("knowledge")} ${verb}${suffix}\`, print its output verbatim, then stop. This is a terminal utility, NOT workflow work: do NOT run \`next\` and do NOT advance, resume, or run any workflow stage.`,
     ));
     return;
   }
@@ -4649,7 +4649,7 @@ function routeNext(args: string[], projectDir: string | undefined): void {
     existsSync(unitParkedPath(pd))
   ) {
     emit(printDirective(
-      `Run \`bun ${harnessDir()}/tools/aidlc-state.ts unpark\` to clear this checkout's Unit park marker, then re-run \`next --resume\`.`,
+      `Run \`${aidlcToolInvocation("state")} unpark\` to clear this checkout's Unit park marker, then re-run \`next --resume\`.`,
     ));
     return;
   }
@@ -5240,7 +5240,7 @@ function routeNext(args: string[], projectDir: string | undefined): void {
     const reason = "stage is SKIP in the approved workflow plan";
     emit(printDirective(
       `Stage "${currentSlug}" is SKIP in the approved workflow plan but is still the active cursor. ` +
-        `Do not run this stage. Run \`bun ${harnessDir()}/tools/aidlc-orchestrate.ts report ` +
+        `Do not run this stage. Run \`${aidlcToolInvocation("orchestrate")} report ` +
         `--stage ${shellArg(currentSlug)} --result skipped --reason ${shellArg(reason)}\` ` +
         "to recover the stale pointer, then re-run `next` to continue.",
     ));
@@ -6475,7 +6475,7 @@ function emitPerUnitRunStage(
       `Unit "${cp.unit}" of stage "${node.slug}" is PAUSED (unit_state: paused)` +
         `${cp.reason ? ` — reason: ${cp.reason}` : ""}.` +
         `${cp.nextAction ? ` Recorded next action: ${cp.nextAction}.` : ""} ` +
-        `Do not start other work. Resume this unit (bun ${harnessDir()}/tools/aidlc-state.ts unit resume ` +
+        `Do not start other work. Resume this unit (${aidlcToolInvocation("state")} unit resume ` +
         `--stage ${node.slug} --unit ${cp.unit}) and continue from the recorded next action, or ask ` +
         "the human how to proceed. STOP until the unit is explicitly resumed.",
     ));
@@ -7103,7 +7103,7 @@ function emitTeamUnitMajorRunStage(
         `Unit "${checkpoint.unit}" of stage "${stage.slug}" is PAUSED (unit_state: paused)` +
           `${checkpoint.reason ? ` — reason: ${checkpoint.reason}` : ""}.` +
           `${checkpoint.nextAction ? ` Recorded next action: ${checkpoint.nextAction}.` : ""} ` +
-          `Do not start other work. Resume this unit (bun ${harnessDir()}/tools/aidlc-state.ts unit resume ` +
+          `Do not start other work. Resume this unit (${aidlcToolInvocation("state")} unit resume ` +
           `--stage ${stage.slug} --unit ${checkpoint.unit}) and continue from the recorded next action, or ask ` +
           "the human how to proceed. STOP until the unit is explicitly resumed.",
       ));
@@ -7440,7 +7440,7 @@ function emitUnitMajorRunStage(
         `Unit "${cp.unit}" of stage "${k.slug}" is PAUSED (unit_state: paused)` +
           `${cp.reason ? ` — reason: ${cp.reason}` : ""}.` +
           `${cp.nextAction ? ` Recorded next action: ${cp.nextAction}.` : ""} ` +
-          `Do not start other work. Resume this unit (bun ${harnessDir()}/tools/aidlc-state.ts unit resume ` +
+          `Do not start other work. Resume this unit (${aidlcToolInvocation("state")} unit resume ` +
           `--stage ${k.slug} --unit ${cp.unit}) and continue from the recorded next action, or ask ` +
           "the human how to proceed. STOP until the unit is explicitly resumed.",
       ));
@@ -8686,7 +8686,7 @@ function checkStageCompletionEvidence(
           message:
             `Stage "${slug}" cannot enter approval: unit "${cp.unit}" is paused` +
             `${cp.reason ? ` (reason: ${cp.reason})` : ""}. Resume and complete it first ` +
-            `(bun ${harnessDir()}/tools/aidlc-state.ts unit resume --stage ${slug} --unit ${cp.unit}).`,
+            `(${aidlcToolInvocation("state")} unit resume --stage ${slug} --unit ${cp.unit}).`,
         };
       }
       const pick = nextUncoveredUnit(

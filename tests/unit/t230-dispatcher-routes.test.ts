@@ -1,3 +1,4 @@
+// covers: hook:aidlc-continue-workflow
 // covers: tool:aidlc, function:renderCommandHelp, tool:aidlc-sensor, tool:aidlc-swarm, hook:aidlc-validate-state, hook:aidlc-review-freeze, hook:aidlc-statusline
 import {
   NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS,
@@ -36,6 +37,7 @@ import {
   renderHumanHelp,
   renderNamespaceHelp,
   resolveAction,
+  resolveHookPath,
   routePolicyFor,
 } from "../../core/tools/aidlc.ts";
 import { validatePublicConfigArgs } from "../../core/tools/aidlc-init.ts";
@@ -60,6 +62,7 @@ import {
   seedStateFile,
 } from "../harness/fixtures.ts";
 import { setupTuiProject } from "../harness/tui-fixtures.ts";
+import { HARNESS_MATRIX } from "../harness/harness-matrix.ts";
 
 setDefaultTimeout(NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
 
@@ -1833,6 +1836,7 @@ describe("t230 native review-brief dispatch", () => {
     );
     if (built.error) throw built.error;
     expect(built.status, `${built.stdout}\n${built.stderr}`).toBe(0);
+    cpSync(join(REPO_ROOT, "dist-release"), join(root, "runtime"), { recursive: true });
 
     projectDir = makeProject();
     seedAidlcMemory(projectDir);
@@ -1879,6 +1883,57 @@ describe("t230 native review-brief dispatch", () => {
       otherCwd,
       { ...env, AIDLC_DISPATCH_TOOLS_DIR: "" },
     );
+  }
+
+  for (const harness of HARNESS_MATRIX) {
+    test(`${harness.name}: native Stop recovery and steering commands run without Bun on PATH`, () => {
+      const project = createTestProject();
+      tempProjects.add(project);
+      const harnessDir = harness.manifest.harnessDir;
+      cpSync(
+        join(REPO_ROOT, "dist-release", harness.name),
+        project,
+        { recursive: true },
+      );
+      seedAidlcMemory(project);
+      seedStateFile(project, "state-mid-ideation.md");
+      const options = {
+        cwd: project,
+        env: {
+          ...process.env,
+          PATH: "",
+          AIDLC_PROJECT_DIR: project,
+          CLAUDE_PROJECT_DIR: project,
+          AIDLC_HARNESS_DIR: harnessDir,
+          AIDLC_HARNESS_NAME: harness.name,
+          AIDLC_RUNTIME_HARNESS_ROOT: join(project, harnessDir),
+        },
+        encoding: "utf-8" as const,
+        timeout: 20_000,
+      };
+      const stopped = spawnSync(executable, ["engine", "hook", "continue-workflow"], {
+        ...options, input: "{}",
+      });
+      expect(stopped.status, `${stopped.stdout}\n${stopped.stderr}`).toBe(0);
+      const feedback = JSON.parse(stopped.stdout) as { decision: string; reason: string };
+      expect(feedback.decision).toBe("block");
+      const recovery = /`([^`]+ next)`/.exec(feedback.reason)?.[1];
+      expect(recovery).toBe("aidlc engine orchestrate next");
+      let command = recovery!;
+      let kind = "";
+      for (let part = 0; part < 20; part++) {
+        const [launcher, ...argv] = command.split(/\s+/);
+        expect(launcher).toBe("aidlc");
+        const resumed = spawnSync(executable, argv, options);
+        expect(resumed.status, `${resumed.stdout}\n${resumed.stderr}`).toBe(0);
+        const directive = JSON.parse(resumed.stdout) as { kind: string; next?: string };
+        kind = directive.kind;
+        if (kind !== "load-steering") break;
+        expect(directive.next).toMatch(/^aidlc engine orchestrate continue \S+$/);
+        command = directive.next!;
+      }
+      expect(kind).toBe("run-stage");
+    }, 60_000);
   }
 
   for (const command of ["review", "context", "summary"]) {
@@ -2954,6 +3009,76 @@ describe("t230 dispatcher hook routing", () => {
       for (const line of lines) expect(line).toBe("copilot .aidlc");
     },
   );
+
+  test("a compiled engine resolves hooks and adapters only from its packaged runtime", () => {
+    // A native project holds copies of the hook and adapter files. The compiled
+    // engine must not prefer them, or a changed project would run in place of
+    // the installed runtime; the Bun dispatcher still finds the project copy.
+    const projectDir = makeProject();
+    const projectHook = join(projectDir, ".claude", "hooks", "aidlc-validate-state.ts");
+    const projectAdapter = join(projectDir, ".codex", "hooks", "aidlc-codex-adapter.ts");
+    for (const file of [projectHook, projectAdapter]) {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, "");
+    }
+    const packagedRoot = join(dirname(process.execPath), "runtime");
+
+    const hook = resolveHookPath("aidlc-validate-state.ts", undefined, projectDir, true);
+    const adapter = resolveHookPath("aidlc-codex-adapter.ts", "codex", projectDir, true);
+    expect(hook.startsWith(packagedRoot)).toBe(true);
+    expect(adapter.startsWith(packagedRoot)).toBe(true);
+    expect(hook).not.toBe(projectHook);
+    expect(adapter).not.toBe(projectAdapter);
+
+    expect(resolveHookPath("aidlc-codex-adapter.ts", "codex", projectDir, false)).toBe(projectAdapter);
+  });
+
+  test("a compiled engine resolves nothing when project metadata names a path outside its runtime", () => {
+    // The distribution name comes from the project's harness.json and the
+    // harness directory can come from the environment; neither may carry the
+    // packaged path out of the executable's runtime/ tree.
+    const projectDir = makeProject();
+    const metadata = join(projectDir, ".claude", "tools", "data", "harness.json");
+    mkdirSync(dirname(metadata), { recursive: true });
+    writeFileSync(metadata, JSON.stringify({ name: "../../escaped" }));
+    const saved = {
+      name: process.env.AIDLC_HARNESS_NAME,
+      dir: process.env.AIDLC_HARNESS_DIR,
+      project: process.env.AIDLC_PROJECT_DIR,
+    };
+    try {
+      process.env.AIDLC_PROJECT_DIR = projectDir;
+      delete process.env.AIDLC_HARNESS_NAME;
+      process.env.AIDLC_HARNESS_DIR = ".claude";
+      expect(resolveHookPath("aidlc-validate-state.ts", undefined, projectDir, true)).toBe("");
+      process.env.AIDLC_HARNESS_NAME = "claude";
+      process.env.AIDLC_HARNESS_DIR = "../escaped";
+      expect(resolveHookPath("aidlc-validate-state.ts", undefined, projectDir, true)).toBe("");
+      process.env.AIDLC_HARNESS_DIR = ".claude";
+      expect(
+        resolveHookPath("aidlc-validate-state.ts", undefined, projectDir, true),
+      ).toBe(join(dirname(process.execPath), "runtime", "claude", ".claude", "hooks", "aidlc-validate-state.ts"));
+    } finally {
+      for (
+        const [key, value] of [
+          ["AIDLC_HARNESS_NAME", saved.name],
+          ["AIDLC_HARNESS_DIR", saved.dir],
+          ["AIDLC_PROJECT_DIR", saved.project],
+        ] as const
+      ) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  test("a compiled engine keeps the documented project statusline customization", () => {
+    const projectDir = makeProject();
+    const projectStatusline = join(projectDir, ".claude", "hooks", "aidlc-statusline.ts");
+    mkdirSync(dirname(projectStatusline), { recursive: true });
+    writeFileSync(projectStatusline, "");
+    expect(resolveHookPath("aidlc-statusline.ts", undefined, projectDir, true)).toBe(projectStatusline);
+  });
 
   test.skipIf(process.platform === "win32")(
     "a Copilot project configured by 2.8.0 recovers on binary update alone",
