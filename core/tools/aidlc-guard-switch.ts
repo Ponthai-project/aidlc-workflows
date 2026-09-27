@@ -142,9 +142,10 @@ export function parseReviewOverride(
 }
 
 export function storedReviewOverride(value: ReviewOverride): string {
-  // "adversarial" means no per-run ceiling; stage declarations and scope caps
-  // still apply, so represent it with the same empty field as config-change.
-  return value === "adversarial" ? "" : value;
+  // Every value is stored, "adversarial" included: a set override replaces the
+  // scope's review_cap as this work's ceiling, so "adversarial" lifts a capped
+  // scope to each stage's own class. An empty field means no override.
+  return value;
 }
 
 export function applyReviewOverride(

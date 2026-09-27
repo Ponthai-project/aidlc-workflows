@@ -60,7 +60,6 @@ import {
   auditLockOwnedByProcess,
   type AgentMetadata,
   CEREMONY_ENV,
-  CEREMONY_FLAGS,
   CEREMONY_KEYS,
   type CeremonyKey,
   type CeremonySetting,
@@ -254,12 +253,10 @@ export interface ScopeValidation {
   // scope name from the validator.
   routing?: "matched" | "custom";
   matched_scope?: string;
-  // The per-workflow flags that apply a passing matched proposal's settings at
-  // creation, empty when it keeps the stock values.
-  creation_flags?: string[];
-  // The nearest stock scope with uncapped reviews: where a running workflow
-  // moves when the person asks for stronger reviews than its scope allows.
-  nearest_uncapped?: { scope: string; diff: number } | null;
+  // The per-work settings a passing matched proposal changes from its stock
+  // scope, as typed values the conductor turns into creation flags; empty when
+  // it keeps the stock values.
+  creation_settings?: SettingsChanges;
 }
 
 // The scope-file settings a composer proposal carries beside its grid. The keys
@@ -267,6 +264,10 @@ export interface ScopeValidation {
 // the custom scope file unchanged.
 export const SCOPE_SETTING_KEYS = [...CEREMONY_KEYS, "review_cap"] as const;
 export type ScopeSettings = Record<CeremonyKey, CeremonySetting> & { review_cap: ReviewClass };
+// Per-work setting changes as typed values: each key maps to one fixed flag
+// (`--sensors`, `--learnings`, `--summary-confirmation`, `--review`), so no
+// command text ever travels between the composer and the conductor.
+export type SettingsChanges = Partial<Record<CeremonyKey, CeremonySetting> & { review: ReviewClass }>;
 
 // --- Module-local state ---
 
@@ -1695,21 +1696,17 @@ export function scopeSettingsOf(scope: string): ScopeSettings | null {
   };
 }
 
-// Review levels in order, lowest first, for comparing a proposal with a cap.
-const REVIEW_LEVEL: Record<ReviewClass, number> = { none: 0, advisory: 1, adversarial: 2 };
-
 /** The errors for a front/report proposal that names its routing. Either route
  *  requires the settings and a Guard Policy, so the gate never renders a row the
  *  validator did not check. A matched proposal writes no scope file: it keeps
- *  its stock scope's grid, and a setting it changes must be one a per-workflow
- *  flag can apply at creation. That covers any ceremony value and reviews at or
- *  below the stock cap; raising reviews past the cap, or a Guard Policy other
- *  than the stock default or `strict` (a lowering is the person's to type),
- *  needs a custom scope. `matched` is null for `--custom`. */
+ *  its stock scope's grid, and every setting it changes is applied to this
+ *  piece of work at creation (a per-work review level replaces the scope's
+ *  ceiling, so reviews can go either way). Only a Guard Policy other than the
+ *  stock default or `strict` needs a custom scope, because a lowering is the
+ *  person's to type. `matched` is null for `--custom`. */
 export function composerProposalErrors(
   matched: string | null,
   given: { scopeSettings: boolean; guardPolicy: boolean },
-  settings: ScopeSettings | null,
   guardPolicy: GuardPolicy | null,
   nearest: ReadonlyArray<{ scope: string; diff: number; differs: string[] }>,
 ): string[] {
@@ -1733,13 +1730,6 @@ export function composerProposalErrors(
         "Adopt the stock grid, or propose it as custom.",
     );
   }
-  const stock = scopeSettingsOf(matched);
-  if (settings !== null && stock !== null && REVIEW_LEVEL[settings.review_cap] > REVIEW_LEVEL[stock.review_cap]) {
-    errors.push(
-      `Stock scope "${matched}" caps reviews at ${stock.review_cap}, and a setting for one piece of work can only lower that; ` +
-        `to run ${settings.review_cap} reviews, propose it as custom.`,
-    );
-  }
   if (guardPolicy !== null && guardPolicy !== "strict") {
     const stockPolicy = scopeGuardPolicyDefault(matched);
     if (guardPolicy !== stockPolicy) {
@@ -1752,32 +1742,20 @@ export function composerProposalErrors(
   return errors;
 }
 
-/** The per-workflow flags that apply a matched proposal's settings at creation:
- *  one per ceremony that differs from the stock scope, and `--review` when
- *  reviews go below its cap. Empty when the proposal keeps the stock values.
- *  Guard Policy keeps its own creation rule. */
-export function matchedCreationFlags(matched: string, settings: ScopeSettings): string[] {
+/** The settings a matched proposal changes from its stock scope, as typed
+ *  values applied to this piece of work at creation: each ceremony that
+ *  differs, and `review` when the review level differs in either direction.
+ *  Empty when the proposal keeps the stock values. Guard Policy keeps its own
+ *  creation rule. */
+export function matchedCreationSettings(matched: string, settings: ScopeSettings): SettingsChanges {
   const stock = scopeSettingsOf(matched);
-  if (stock === null) return [];
-  const flags: string[] = [];
+  if (stock === null) return {};
+  const changes: SettingsChanges = {};
   for (const key of CEREMONY_KEYS) {
-    if (settings[key] !== stock[key]) flags.push(`${CEREMONY_FLAGS[key]} ${settings[key]}`);
+    if (settings[key] !== stock[key]) changes[key] = settings[key];
   }
-  if (REVIEW_LEVEL[settings.review_cap] < REVIEW_LEVEL[stock.review_cap]) {
-    flags.push(`--review ${settings.review_cap}`);
-  }
-  return flags;
-}
-
-/** The nearest stock scope, in validator order, whose reviews are uncapped.
- *  Null when every stock scope caps them. */
-export function nearestUncappedStock(
-  nearest: ReadonlyArray<{ scope: string; diff: number }>,
-): { scope: string; diff: number } | null {
-  for (const entry of nearest) {
-    if (scopeSettingsOf(entry.scope)?.review_cap === "adversarial") return { scope: entry.scope, diff: entry.diff };
-  }
-  return null;
+  if (settings.review_cap !== stock.review_cap) changes.review = settings.review_cap;
+  return changes;
 }
 
 /** Advisories for `on` settings a kill switch forces off here. The scope stores
@@ -3488,7 +3466,6 @@ const COMMANDS: Record<string, Handler> = {
       const routeErrors = composerProposalErrors(
         matched ?? null,
         { scopeSettings: obj.scopeSettings !== undefined, guardPolicy: ccRaw !== undefined },
-        r.scope_settings ?? null,
         r.guard_policy ?? null,
         r.nearest_stock ?? [],
       );
@@ -3497,11 +3474,10 @@ const COMMANDS: Record<string, Handler> = {
         r.routing = matched === undefined ? "custom" : "matched";
         if (matched !== undefined && r.scope_settings !== undefined) {
           r.matched_scope = matched;
-          r.creation_flags = matchedCreationFlags(matched, r.scope_settings);
+          r.creation_settings = matchedCreationSettings(matched, r.scope_settings);
         }
       }
     }
-    r.nearest_uncapped = nearestUncappedStock(r.nearest_stock ?? []);
     r.valid = r.errors.length === 0;
     process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
     if (!r.valid) process.exit(1);

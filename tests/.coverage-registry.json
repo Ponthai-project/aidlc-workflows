@@ -20,9 +20,9 @@
     "render-surface": "tui"
   },
   "counts": {
-    "total": 1165,
+    "total": 1164,
     "enumeratedByClass": {
-      "function": 839,
+      "function": 838,
       "audit": 105,
       "scope": 11,
       "stage": 33,
@@ -5237,7 +5237,7 @@
     },
     {
       "unitClass": "function",
-      "unitId": "function:matchedCreationFlags",
+      "unitId": "function:matchedCreationSettings",
       "minMechanism": "none",
       "coveredBy": [
         {
@@ -5473,18 +5473,6 @@
       "coveredBy": [
         {
           "file": "tests/unit/t277-validate-grid-nearest-stock.test.ts",
-          "mechanism": "cli"
-        }
-      ],
-      "status": "covered"
-    },
-    {
-      "unitClass": "function",
-      "unitId": "function:nearestUncappedStock",
-      "minMechanism": "none",
-      "coveredBy": [
-        {
-          "file": "tests/unit/t349-composer-scope-settings.test.ts",
           "mechanism": "cli"
         }
       ],
@@ -7393,8 +7381,13 @@
       "unitClass": "function",
       "unitId": "function:resolveReviewClass",
       "minMechanism": "none",
-      "coveredBy": [],
-      "status": "UNCOVERED"
+      "coveredBy": [
+        {
+          "file": "tests/unit/t349-composer-scope-settings.test.ts",
+          "mechanism": "cli"
+        }
+      ],
+      "status": "covered"
     },
     {
       "unitClass": "function",

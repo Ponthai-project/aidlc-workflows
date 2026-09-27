@@ -221,16 +221,17 @@ describe("t338 atomic per-intent settings", () => {
     expect(settingRows(proj)).toEqual(audit);
   });
 
-  test("adversarial review clears the stored override and is idempotent", () => {
+  test("adversarial review is stored explicitly and is idempotent", () => {
     const { proj, state } = project("classic", ["--review", "none"]);
     const changed = run(UTILITY, ["config-change", "--review", "adversarial"], proj);
     expect(changed.status, changed.stderr).toBe(0);
     const content = readFileSync(state, "utf-8");
-    expect(getField(content, "Review Override")).toBe("");
+    // Stored as a value, not cleared: it replaces the scope's review cap.
+    expect(getField(content, "Review Override")).toBe("adversarial");
     const audit = settingRows(proj);
     expect(audit.map((row) => row.event)).toEqual(["REVIEW_CLASS_CHANGED"]);
     expect(auditBlockField(audit[0].block, "Old Override")).toBe("none");
-    expect(auditBlockField(audit[0].block, "New Override")).toBe("cleared (stage defaults apply)");
+    expect(auditBlockField(audit[0].block, "New Override")).toBe("adversarial");
     const repeated = run(UTILITY, ["config-change", "--review", "adversarial"], proj);
     expect(repeated.status, repeated.stderr).toBe(0);
     expect(readFileSync(state, "utf-8")).toBe(content);

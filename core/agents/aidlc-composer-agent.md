@@ -651,8 +651,8 @@ one SHORT line per stage (≤15 words), not a paragraph.
   "guardPolicyRationale": "<1-2 sentences: which fences this value lowers (strict: none; relaxed: plan approval and review freeze; off: those plus state transition and reviewer scope) and why an input change after approval should reopen it, or be recorded and continue>",
   "scopeSettings": { "sensors": "on | off", "learnings": "on | off", "summary_confirmation": "on | off", "review_cap": "adversarial | advisory | none" },
   "scopeSettingsRationale": "<front/report only, 1-2 sentences: which settings are off or capped and why this work does not need them, or that they match the stock scope>",
-  "creationFlags": "<matched only: the validator's creation_flags joined with spaces; empty when the settings match the stock scope>",
-  "settingsFlags": "<in-flight only: the next flags that apply a settings request; empty when there is none>",
+  "creationSettings": { "learnings": "off", "review": "adversarial" },
+  "settingsChanges": { "sensors": "off" },
   "changes": { "skip": ["<slug>"], "add": ["<slug>"] },
   "rationale": [{"stage": "<slug>", "reason": "<1 sentence with ARS ref>"}, "..."],
   "summary": "...from validate-grid verbatim..."
@@ -732,13 +732,14 @@ makes `scopeSettings` and the Guard Policy required; the validator rejects an
 unknown key, a missing key, or any other word, echoes the accepted values as
 `scope_settings`, and names what they switch off in `summary.off`. A matched
 proposal writes no scope file, so settings that differ from its stock scope
-apply to this piece of work only: `--matched` accepts any ceremony value and
-any review level at or below the stock scope's cap, and echoes the exact
-`creation_flags` that apply them (for example `--learnings off --review
-none`). Copy them into `creationFlags`; the conductor appends them to the
-creation command. `--matched` rejects a grid that differs from the stock
-scope, reviews above its cap, and a Guard Policy other than its default or
-`strict`, because no per-workflow setting can deliver those. The proposal is
+apply to this piece of work only: `--matched` accepts any value, reviews above
+the stock scope's usual ceiling included (a review level set for the piece of
+work replaces its scope's), and echoes `creation_settings`, the typed changes
+(for example `{ "learnings": "off", "review": "adversarial" }`). Copy that
+object unchanged into `creationSettings` (matched only; `{}` when nothing
+differs). `--matched` rejects a grid that differs from the stock scope, and a
+Guard Policy other than its default or `strict`, because a lowering is the
+person's to type. The proposal is
 not ready until that run passes: take `mode` from its `routing` echo (and,
 when matched, `scopeName` from `matched_scope`), and Step 10 copies the
 `scope_settings` echo of a custom proposal, never a hand-typed value.
@@ -746,29 +747,29 @@ when matched, `scopeName` from `matched_scope`), and Step 10 copies the
 For a front composition the conductor renders the settings as one gate row,
 and whatever the human asks for there is done. Changing a setting on a matched
 proposal keeps it matched: revalidate with `--matched`, and the new
-`creation_flags` carry the change. Only raising reviews above the stock
-scope's cap, or lowering its Guard Policy, needs a scope of its own: convert
-the proposal to `mode: "custom"` with a custom `scopeName` and persist the
-values at Step 10.
+`creation_settings` carry the change. Only lowering its Guard Policy needs a
+scope of its own: convert the proposal to `mode: "custom"` with a custom
+`scopeName` and persist the values at Step 10.
 
 In-flight, a request to turn one of these on or off is not a stage flip and a
 recompose cannot land it, so leave it out of `changes` and return
-`settingsFlags`: the `next` flags that apply it to the running work, which the
-conductor runs without a gate. Use `--sensors on|off`, `--learnings on|off`,
-`--summary-confirmation on|off`, or `--review advisory|none` to lower
-reviews; `--review adversarial` clears an earlier lowering. When the running
-scope's `review_cap` is below the requested level (read that one scope's
-`.md`), only a different scope can deliver it: use `--scope <the validator's
-nearest_uncapped.scope> --review <requested level>`, which also recalculates
-the pending stages, and say so in the rationale. Before returning an `on`
-switch, read the effective value with `{{INVOKE}} engine config get
+`settingsChanges`: typed values the conductor applies to the running work
+without a gate. The keys are `sensors`, `learnings`, and
+`summary_confirmation` (`on | off`) and `review` (`adversarial | advisory |
+none`). A review level set for the piece of work replaces its scope's
+ceiling, so a request for full reviews is `"review": "adversarial"` even on a
+capped scope, and no stage changes. Before returning an `on` switch, read the
+effective value with `{{INVOKE}} engine config get
 <sensors|learnings|summary-confirmation>`: when it reports `from env
 AIDLC_DISABLE_<NAME>`, a kill switch set on this machine overrides every
-setting, so return no flag for it and say in one line that it has to be
+setting, so return no change for it and say in one line that it has to be
 removed outside the agent. Never look for where it is set: do not open shell
 startup files, environment listings, or harness settings files, which can
-hold credentials; `config get` is the only reading you take. A request that is
-only about settings returns empty `changes.skip` and `changes.add`.
+hold credentials; `config get` is the only reading you take.
+Never put command text in either object: only those four keys and their
+listed words.
+A request that is only about settings returns empty `changes.skip` and
+`changes.add`.
 
 The `ars.total` composite is an ADVISORY heuristic index: the weights in Step
 2.3 are uncalibrated priors, and nothing deterministic routes on the number.
@@ -852,8 +853,8 @@ On **Edit**, apply the requested grid, Guard Policy, or settings changes, re-run
 rebuild both `summary` and the full stage-decision table before re-presenting.
 For in-flight, also rebuild the exact `changes.skip` / `changes.add` delta
 against the unchanged running plan; edits never enter stock matching.
-If the proposal was `matched` and an edit changes the adopted stock grid,
-lowers its Guard Policy, or raises reviews above its cap,
+If the proposal was `matched` and an edit changes the adopted stock grid or
+lowers its Guard Policy,
 convert it to `mode: "custom"` and assign a custom `scopeName` (any other
 settings change stays matched, Step 8); it no longer
 matches the stock plan and approval must follow the custom persistence path.

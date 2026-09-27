@@ -122,9 +122,10 @@ ceremony runs inside them. Every front/report proposal names all four in its
   missing ceremony line means `on`, a missing `review_cap` means
   `adversarial`). A value you or the human change applies to this piece of
   work only, since a matched proposal writes no scope file: the final
-  `validate-grid --matched <scope>` run echoes the `creation_flags` that apply
-  it, and the conductor appends them to the creation command. Ceremonies can
-  go either way; reviews can only go down from the stock cap.
+  `validate-grid --matched <scope>` run echoes them as `creation_settings`,
+  typed values the conductor turns into creation flags. Any value can change,
+  reviews included: a review level set for the piece of work replaces its
+  scope's ceiling.
 - Validate the final grid with the chosen values and its route (`--matched
   <scope>` or `--custom`); either flag makes the four settings and the Guard
   Policy required. The approved scope file takes the validator's
@@ -155,22 +156,21 @@ ceremony runs inside them. Every front/report proposal names all four in its
   `on` but the ceremony will not run until the switch is cleared.
 - The human sees the four values as one gate row, and whatever they ask for
   there is done. On a matched proposal a change stays matched and applies to
-  this piece of work; only raising reviews above the stock cap, or lowering
-  its Guard Policy, needs a custom scope. The approved custom scope stores the
+  this piece of work; only lowering its Guard Policy needs a custom scope. The
+  approved custom scope stores the
   values in its frontmatter as `sensors:`, `learnings:`,
   `summary_confirmation:`, and `review_cap:`.
 - In-flight, the settings are not part of the recompose. Leave a settings
-  request out of the stage delta and return `settingsFlags`, the `next` flags
-  that apply it (`--sensors on|off`, `--learnings on|off`,
-  `--summary-confirmation on|off`, `--review advisory|none`, or `--review
-  adversarial` to clear a lowering); the conductor applies them without a
-  gate. Reviews above the running scope's cap need a different scope: use
-  `--scope <nearest_uncapped.scope> --review <level>`, which also recalculates
-  the pending stages. When `engine config get <key>` reports `from env
+  request out of the stage delta and return `settingsChanges`, typed values
+  the conductor applies without a gate: `sensors`, `learnings`, and
+  `summary_confirmation` (`on`/`off`) and `review` (`adversarial`/`advisory`/
+  `none`). Full reviews on a capped scope is `"review": "adversarial"`; no
+  stage changes. When `engine config get <key>` reports `from env
   AIDLC_DISABLE_<NAME>`, a kill switch on this machine overrides every
-  setting: return no flag and say in one line that it has to be removed
+  setting: return no change and say in one line that it has to be removed
   outside the agent. Never look for where it is set; shell startup files,
   environment listings, and harness settings files can hold credentials.
+  Never put command text in `settingsChanges` or `creationSettings`.
 
 ## Rationale quality
 
