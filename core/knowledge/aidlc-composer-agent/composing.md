@@ -164,9 +164,13 @@ ceremony runs inside them. Every front/report proposal names all four in its
   Codex). Before naming an `on` switch, read the effective value (`engine
   config get <key>`): when a kill switch supplies it (`from env
   AIDLC_DISABLE_<NAME>`), the switch wins over every intent and scope value,
-  so name the switch and what clears it (unset the variable, or
-  `config flags --clear-bypass AIDLC_DISABLE_<NAME>` for a recorded one)
-  instead. Reviews only go down that way: `--review advisory|none` lowers them,
+  so name the switch and where it is set instead. `config flags --show` lists
+  a recorded one as `Bypass enabled: <NAME> [local|project|machine]`, cleared
+  by `config flags --clear-bypass <NAME>` with that layer's flag (`--local`,
+  `--project`, or `--global` for `[machine]`) and `--yes` once no workflow is
+  active, since config changes refuse while one is. One `--show` does not
+  list is a real environment variable, unset where it is set before a new
+  session. Reviews only go down that way: `--review advisory|none` lowers them,
   and `--review adversarial` never lifts the running scope's `review_cap`. For
   stronger reviews than that cap allows, name the cap and the one command that
   lifts it: `/aidlc --scope <name> --review adversarial`, to a scope whose

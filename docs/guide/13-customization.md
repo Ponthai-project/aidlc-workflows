@@ -226,7 +226,11 @@ gate. A matched proposal shows the stock scope's own values; you can flip any of
 them before approving, and a custom scope stores the approved values in its
 frontmatter, so every new intent on it starts with those values. A kill switch
 still wins: when one forces an `on` value off on this machine, the gate marks it,
-and mid-workflow the composer names the switch to clear rather than an `on` flag.
+and mid-workflow the composer names the switch and where it is set rather than an
+`on` flag. A recorded switch is listed by `aidlc config flags --show` with its
+layer and cleared with `--clear-bypass <NAME>` plus `--local`, `--project`, or
+`--global` (shown as `[machine]`) once no workflow is active; config changes
+refuse while one is.
 
 These switches do not remove approval gates, Plan Approval, human-turn
 authority, audit, or team cross-unit write protection. Classic turns off

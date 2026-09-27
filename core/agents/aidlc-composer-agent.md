@@ -745,9 +745,15 @@ out of `changes` and name the per-intent switch the human types instead
 on|off`; `$aidlc` on Codex). Before naming an `on` switch, read the effective
 value with `{{INVOKE}} engine config get <sensors|learnings|summary-confirmation>`:
 when it reports `from env AIDLC_DISABLE_<NAME>`, that kill switch wins over
-every intent and scope value, so say so and name what clears it (unset the
-environment variable, or `{{INVOKE}} config flags --clear-bypass
-AIDLC_DISABLE_<NAME>` for a recorded one) instead of the `on` switch.
+every intent and scope value, so say the `on` switch cannot restore it and find
+where it is set. `{{INVOKE}} config flags --show` lists a recorded one as
+`Bypass enabled: AIDLC_DISABLE_<NAME> [local|project|machine]`; clear it with
+`{{INVOKE}} config flags --clear-bypass AIDLC_DISABLE_<NAME>` plus that layer's
+flag (`--local`, `--project`, or `--global` for `[machine]`) and `--yes`, once no
+workflow is active: config changes refuse while one is, so the ceremony stays
+off for the rest of this one. A switch `--show` does not list is a real
+environment variable, which must be unset where it is set (the shell or the
+harness settings `env` block) before a new session.
 Reviews only go down that way: `--review advisory|none` lowers them, and
 `--review adversarial` clears an earlier lowering but
 never lifts the running scope's `review_cap`. For stronger reviews than that

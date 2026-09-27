@@ -24,7 +24,8 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   composerProposalErrors,
@@ -56,8 +57,10 @@ import {
   seedAidlcMemory,
   seedStateFile,
   seededRecordDir,
+  setupIntegrationProject,
   withEnvAndFreshCaches,
 } from "../harness/fixtures.ts";
+import { NATIVE_FIXTURE_SETUP_TIMEOUT_MS } from "../harness/test-budget.ts";
 
 const BUN = process.execPath;
 const GRAPH_TOOL = join(AIDLC_SRC, "tools", "aidlc-graph.ts");
@@ -365,6 +368,64 @@ describe("t349 (4c) a kill switch wins over an on setting, at the gate and mid-w
   });
 });
 
+describe("t349 (4d) the recovery names where a kill switch is set and when it clears", () => {
+  // An installed project with the machine layer isolated, the way t298 does it.
+  function installed(): { proj: string; run: (tool: string, args: string[]) => ReturnType<typeof spawnSync> } {
+    const proj = setupIntegrationProject();
+    tempDirs.push(proj);
+    const machine = mkdtempSync(join(tmpdir(), "aidlc-t349-machine-"));
+    tempDirs.push(machine);
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      AIDLC_INSTALL_ROOT: machine,
+      AIDLC_BIN_DIR: join(machine, "bin"),
+      CLAUDE_PROJECT_DIR: proj,
+    };
+    for (const key of CEREMONY_KEYS) delete env[CEREMONY_ENV[key]];
+    const run = (tool: string, args: string[]) =>
+      spawnSync(BUN, [join(proj, ".claude", "tools", tool), ...args, "--project-dir", proj], { encoding: "utf-8", env });
+    return { proj, run };
+  }
+  const out = (res: ReturnType<typeof spawnSync>) => `${res.stdout ?? ""}${res.stderr ?? ""}`;
+
+  test("each recorded layer is listed with its tag, holds mid-workflow, and clears with its own flag after", () => {
+    for (const [flag, tag] of [["local", "local"], ["project", "project"], ["global", "machine"]]) {
+      const { proj, run } = installed();
+      const record = run("aidlc.ts", ["config", "flags", "--bypass", "AIDLC_DISABLE_SENSORS", `--${flag}`, "--yes"]);
+      expect(record.status, `${flag}: ${out(record)}`).toBe(0);
+      expect(out(run("aidlc.ts", ["config", "flags", "--show"]))).toContain(`Bypass enabled: AIDLC_DISABLE_SENSORS [${tag}]`);
+      seedStateFile(proj, join(FIXTURES_DIR, "state-mid-ideation.md"));
+      const effective = () => String(run("aidlc-utility.ts", ["config-get", "sensors"]).stdout).trim();
+      expect(effective(), flag).toBe("off (from env AIDLC_DISABLE_SENSORS)");
+      // While the workflow is active, config changes refuse, so the ceremony stays off for it.
+      const refused = run("aidlc.ts", ["config", "flags", "--clear-bypass", "AIDLC_DISABLE_SENSORS", `--${flag}`, "--yes"]);
+      expect(refused.status, flag).not.toBe(0);
+      expect(out(refused)).toContain("refusing to refresh while 1 workflow(s) are active");
+      expect(effective(), flag).toBe("off (from env AIDLC_DISABLE_SENSORS)");
+      // Once no workflow is active, that layer's flag clears it.
+      const statePath = join(seededRecordDir(proj), "aidlc-state.md");
+      writeFileSync(statePath, readFileSync(statePath, "utf-8").replace("- **Status**: Running", "- **Status**: Completed"));
+      const cleared = run("aidlc.ts", ["config", "flags", "--clear-bypass", "AIDLC_DISABLE_SENSORS", `--${flag}`, "--yes"]);
+      expect(cleared.status, `${flag}: ${out(cleared)}`).toBe(0);
+      expect(out(run("aidlc.ts", ["config", "flags", "--show"]))).not.toContain("Bypass enabled: AIDLC_DISABLE_SENSORS");
+      expect(effective(), flag).toBe("on (from scope feature)");
+    }
+  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+
+  test("a clear without a layer is refused, and a real environment switch is not listed", () => {
+    const { proj, run } = installed();
+    const bare = run("aidlc.ts", ["config", "flags", "--clear-bypass", "AIDLC_DISABLE_SENSORS", "--yes"]);
+    expect(bare.status).not.toBe(0);
+    expect(out(bare)).toContain("settings mutation requires exactly one of --local, --project, or --global");
+    seedStateFile(proj, join(FIXTURES_DIR, "state-mid-ideation.md"));
+    const env = { ...process.env, AIDLC_DISABLE_LEARNINGS: "1", CLAUDE_PROJECT_DIR: proj };
+    const show = spawnSync(BUN, [join(proj, ".claude", "tools", "aidlc.ts"), "config", "flags", "--show", "--project-dir", proj], { encoding: "utf-8", env });
+    expect(out(show)).not.toContain("Bypass enabled: AIDLC_DISABLE_LEARNINGS");
+    const got = spawnSync(BUN, [join(proj, ".claude", "tools", "aidlc-utility.ts"), "config-get", "learnings", "--project-dir", proj], { encoding: "utf-8", env });
+    expect(String(got.stdout).trim()).toBe("off (from env AIDLC_DISABLE_LEARNINGS)");
+  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+});
+
 describe("t349 (5) a custom scope written with the approved settings runs with them", () => {
   test("the resolvers read each value from the scope file and agree with the gate's off list", () => {
     const proj = createTestProject();
@@ -443,8 +504,10 @@ describe("t349 (6) every composer surface names the settings contract", () => {
       expect(text, surface).toMatch(/never lifts the running scope's `?review_cap`?/);
       // The way past the cap clears a stored lowering in the same command.
       expect(text, surface).toContain("--scope <name> --review adversarial");
-      // An on switch is advised only after checking that no kill switch wins.
+      // An on switch is advised only after checking that no kill switch wins,
+      // and the recovery names the layer flag a recorded switch needs.
       expect(text, surface).toContain("AIDLC_DISABLE_<NAME>");
+      expect(text, surface).toMatch(/`?--global`? for `?\[machine\]`?/);
     }
   });
 
