@@ -118,19 +118,20 @@ ceremony runs inside them. Every front/report proposal names all four in its
 | `summary_confirmation` | `on`, `off` | The separate "Looks correct" checkpoint before a stage writes its artifacts |
 | `review_cap` | `adversarial`, `advisory`, `none` | `advisory`: each stage review becomes one pass whose findings the human reads at the gate; `none`: no stage reviewer is dispatched in the gated flow |
 
-- A matched stock scope carries its own values. Copy them from its `.md` and
-  say so; a missing ceremony line means `on`, a missing `review_cap` means
-  `adversarial`. The final `validate-grid --matched <scope>` run rejects any
-  value that differs from that scope's, so a copying slip cannot reach the
-  gate: a matched proposal writes no scope file, and the workflow runs on the
-  stock values.
+- A matched proposal starts from its stock scope's values (from its `.md`; a
+  missing ceremony line means `on`, a missing `review_cap` means
+  `adversarial`). A value you or the human change applies to this piece of
+  work only, since a matched proposal writes no scope file: the final
+  `validate-grid --matched <scope>` run echoes the `creation_flags` that apply
+  it, and the conductor appends them to the creation command. Ceremonies can
+  go either way; reviews can only go down from the stock cap.
 - Validate the final grid with the chosen values and its route (`--matched
   <scope>` or `--custom`); either flag makes the four settings and the Guard
   Policy required. The approved scope file takes the validator's
   `scope_settings` echo, so a value the loader would reject never reaches it.
-- For a custom grid, start from the validator's nearest stock scope and move
-  a setting only when the entropy profile gives a reason, the same way a SKIP
-  needs one:
+- For a custom grid, start from the validator's nearest stock scope. Either
+  way, move a setting only when the entropy profile gives a reason, the same
+  way a SKIP needs one:
   - `sensors`: keep on when verification entropy is MED or higher, the work
     is regulated, or later stages trace back to these artifacts. Off fits a
     throwaway spike or the lightest run, where nobody will check the artifacts
@@ -152,35 +153,24 @@ ceremony runs inside them. Every front/report proposal names all four in its
   whatever the scope says. The validator names one that forces an `on` value
   off on this machine; mark that value in the gate row, since the scope stores
   `on` but the ceremony will not run until the switch is cleared.
-- The human sees the four values as one gate row and can flip any of them
-  before approving. A flip on a matched proposal is an edit: convert it to a
-  custom scope that declares the values, the same path a Guard Policy flip
-  takes. The approved custom scope stores them in its frontmatter as
-  `sensors:`, `learnings:`, `summary_confirmation:`, and `review_cap:`.
-- In-flight, the settings are not part of the recompose. When the request is
-  to turn one on or off, leave it out of the stage delta and name the
-  per-intent switch the human types: `/aidlc --sensors on|off`,
-  `--learnings on|off`, or `--summary-confirmation on|off` (`$aidlc` on
-  Codex). Before naming an `on` switch, read the effective value (`engine
-  config get <key>`): when a kill switch supplies it (`from env
-  AIDLC_DISABLE_<NAME>`), the switch wins over every intent and scope value,
-  so say the human removes it outside the agent. Never look for it yourself:
-  shell startup files, environment listings, and harness settings files can
-  hold credentials. Give the human the loop: `config flags --show` lists the
-  recorded switch that wins as `Bypass enabled: <NAME> [local|project|machine]`,
-  cleared by `config flags --clear-bypass <NAME>` with that layer's flag
-  (`--local`, `--project`, or `--global` for `[machine]`) and `--yes` once no
-  workflow is active; they repeat until nothing is listed, since `--show`
-  names only the layer that wins. If nothing is listed, it is an environment
-  variable they remove wherever they set it, then start a new session. Reviews only go down that way: `--review advisory|none` lowers them,
-  and `--review adversarial` never lifts the running scope's `review_cap`. For
-  stronger reviews than that cap allows, name the cap and the one command that
-  lifts it: `/aidlc --scope <name> --review adversarial`, to a scope whose
-  `review_cap` allows them. The same-command `--review adversarial` clears any
-  earlier lowering, which a scope change alone keeps, and the change also
-  recalculates the pending stages. Say that reviews then run at each stage's
-  own class, up to the new cap. A settings-only request returns an empty stage
-  delta, so the conductor presents no gate and runs no recompose.
+- The human sees the four values as one gate row, and whatever they ask for
+  there is done. On a matched proposal a change stays matched and applies to
+  this piece of work; only raising reviews above the stock cap, or lowering
+  its Guard Policy, needs a custom scope. The approved custom scope stores the
+  values in its frontmatter as `sensors:`, `learnings:`,
+  `summary_confirmation:`, and `review_cap:`.
+- In-flight, the settings are not part of the recompose. Leave a settings
+  request out of the stage delta and return `settingsFlags`, the `next` flags
+  that apply it (`--sensors on|off`, `--learnings on|off`,
+  `--summary-confirmation on|off`, `--review advisory|none`, or `--review
+  adversarial` to clear a lowering); the conductor applies them without a
+  gate. Reviews above the running scope's cap need a different scope: use
+  `--scope <nearest_uncapped.scope> --review <level>`, which also recalculates
+  the pending stages. When `engine config get <key>` reports `from env
+  AIDLC_DISABLE_<NAME>`, a kill switch on this machine overrides every
+  setting: return no flag and say in one line that it has to be removed
+  outside the agent. Never look for where it is set; shell startup files,
+  environment listings, and harness settings files can hold credentials.
 
 ## Rationale quality
 

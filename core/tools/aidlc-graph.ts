@@ -60,6 +60,7 @@ import {
   auditLockOwnedByProcess,
   type AgentMetadata,
   CEREMONY_ENV,
+  CEREMONY_FLAGS,
   CEREMONY_KEYS,
   type CeremonyKey,
   type CeremonySetting,
@@ -253,6 +254,12 @@ export interface ScopeValidation {
   // scope name from the validator.
   routing?: "matched" | "custom";
   matched_scope?: string;
+  // The per-workflow flags that apply a passing matched proposal's settings at
+  // creation, empty when it keeps the stock values.
+  creation_flags?: string[];
+  // The nearest stock scope with uncapped reviews: where a running workflow
+  // moves when the person asks for stronger reviews than its scope allows.
+  nearest_uncapped?: { scope: string; diff: number } | null;
 }
 
 // The scope-file settings a composer proposal carries beside its grid. The keys
@@ -1687,13 +1694,17 @@ export function scopeSettingsOf(scope: string): ScopeSettings | null {
   };
 }
 
+// Review levels in order, lowest first, for comparing a proposal with a cap.
+const REVIEW_LEVEL: Record<ReviewClass, number> = { none: 0, advisory: 1, adversarial: 2 };
+
 /** The errors for a front/report proposal that names its routing. Either route
  *  requires the settings and a Guard Policy, so the gate never renders a row the
- *  validator did not check. A matched proposal writes no scope file, so creation
- *  runs on that stock scope's own grid, settings, and Guard Policy: anything else
- *  would show the human values the workflow never runs. `strict` passes for any
- *  stock scope because creation applies it with `--guard-policy strict`.
- *  `matched` is null for `--custom`. */
+ *  validator did not check. A matched proposal writes no scope file: it keeps
+ *  its stock scope's grid, and a setting it changes must be one a per-workflow
+ *  flag can apply at creation. That covers any ceremony value and reviews at or
+ *  below the stock cap; raising reviews past the cap, or a Guard Policy other
+ *  than the stock default or `strict` (a lowering is the person's to type),
+ *  needs a custom scope. `matched` is null for `--custom`. */
 export function composerProposalErrors(
   matched: string | null,
   given: { scopeSettings: boolean; guardPolicy: boolean },
@@ -1722,15 +1733,11 @@ export function composerProposalErrors(
     );
   }
   const stock = scopeSettingsOf(matched);
-  if (settings !== null && stock !== null) {
-    for (const key of SCOPE_SETTING_KEYS) {
-      if (settings[key] !== stock[key]) {
-        errors.push(
-          `Stock scope "${matched}" declares ${key} ${stock[key]}, but the proposal shows ${settings[key]}. ` +
-            "Show the stock value, or propose it as custom.",
-        );
-      }
-    }
+  if (settings !== null && stock !== null && REVIEW_LEVEL[settings.review_cap] > REVIEW_LEVEL[stock.review_cap]) {
+    errors.push(
+      `Stock scope "${matched}" caps reviews at ${stock.review_cap}, and a setting for one piece of work can only lower that; ` +
+        `to run ${settings.review_cap} reviews, propose it as custom.`,
+    );
   }
   if (guardPolicy !== null && guardPolicy !== "strict") {
     const stockPolicy = scopeGuardPolicyDefault(matched);
@@ -1742,6 +1749,34 @@ export function composerProposalErrors(
     }
   }
   return errors;
+}
+
+/** The per-workflow flags that apply a matched proposal's settings at creation:
+ *  one per ceremony that differs from the stock scope, and `--review` when
+ *  reviews go below its cap. Empty when the proposal keeps the stock values.
+ *  Guard Policy keeps its own creation rule. */
+export function matchedCreationFlags(matched: string, settings: ScopeSettings): string[] {
+  const stock = scopeSettingsOf(matched);
+  if (stock === null) return [];
+  const flags: string[] = [];
+  for (const key of CEREMONY_KEYS) {
+    if (settings[key] !== stock[key]) flags.push(`${CEREMONY_FLAGS[key]} ${settings[key]}`);
+  }
+  if (REVIEW_LEVEL[settings.review_cap] < REVIEW_LEVEL[stock.review_cap]) {
+    flags.push(`--review ${settings.review_cap}`);
+  }
+  return flags;
+}
+
+/** The nearest stock scope, in validator order, whose reviews are uncapped.
+ *  Null when every stock scope caps them. */
+export function nearestUncappedStock(
+  nearest: ReadonlyArray<{ scope: string; diff: number }>,
+): { scope: string; diff: number } | null {
+  for (const entry of nearest) {
+    if (scopeSettingsOf(entry.scope)?.review_cap === "adversarial") return { scope: entry.scope, diff: entry.diff };
+  }
+  return null;
 }
 
 /** Advisories for `on` settings a kill switch forces off here. The scope stores
@@ -1757,30 +1792,6 @@ export function killSwitchAdvisories(
     (key) =>
       `${key} is on in these settings, but ${CEREMONY_ENV[key]} forces it off on this machine; ` +
       "the scope still stores on, and the ceremony runs once that switch is cleared.",
-  );
-}
-
-/** The advisory for settings that match no stock scope sharing the proposal's
- *  exact grid. Such a grid is either a matched proposal, which must show its
- *  stock scope's own values because no scope file is written, or a custom one a
- *  settings flip produced. The validator cannot tell which, so it advises rather
- *  than rejects. Null when no stock grid is identical or one agrees. */
-export function stockSettingsAdvisory(
-  settings: ScopeSettings,
-  nearest: ReadonlyArray<{ scope: string; diff: number }>,
-): string | null {
-  const exact = nearest.filter((entry) => entry.diff === 0).map((entry) => entry.scope);
-  const described: string[] = [];
-  for (const scope of exact) {
-    const stock = scopeSettingsOf(scope);
-    if (stock === null) continue;
-    if (SCOPE_SETTING_KEYS.every((key) => stock[key] === settings[key])) return null;
-    described.push(`${scope}: ${SCOPE_SETTING_KEYS.map((key) => `${key} ${stock[key]}`).join(", ")}`);
-  }
-  if (described.length === 0) return null;
-  return (
-    `Scope settings match no stock scope with this exact grid (${described.join("; ")}). ` +
-    "A matched proposal carries its stock scope's values; keep different values only on a custom proposal."
   );
 }
 
@@ -3469,12 +3480,6 @@ const COMMANDS: Record<string, Handler> = {
       if (checked.settings !== null) {
         r.scope_settings = checked.settings;
         if (r.summary) r.summary.off = scopeSettingsOffList(checked.settings.review_cap, checked.settings);
-        // A named route decides this instead: matched binds the values below, and
-        // a custom proposal on a stock grid is what a settings flip produces.
-        const advisory = matched === undefined && !custom
-          ? stockSettingsAdvisory(checked.settings, r.nearest_stock ?? [])
-          : null;
-        if (advisory !== null) r.advisories.push(advisory);
         r.advisories.push(...killSwitchAdvisories(checked.settings));
       }
     }
@@ -3489,9 +3494,13 @@ const COMMANDS: Record<string, Handler> = {
       r.errors.push(...routeErrors);
       if (routeErrors.length === 0) {
         r.routing = matched === undefined ? "custom" : "matched";
-        if (matched !== undefined) r.matched_scope = matched;
+        if (matched !== undefined && r.scope_settings !== undefined) {
+          r.matched_scope = matched;
+          r.creation_flags = matchedCreationFlags(matched, r.scope_settings);
+        }
       }
     }
+    r.nearest_uncapped = nearestUncappedStock(r.nearest_stock ?? []);
     r.valid = r.errors.length === 0;
     process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
     if (!r.valid) process.exit(1);

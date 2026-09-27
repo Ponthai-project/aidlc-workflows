@@ -20,9 +20,9 @@
     "render-surface": "tui"
   },
   "counts": {
-    "total": 1156,
+    "total": 1157,
     "enumeratedByClass": {
-      "function": 832,
+      "function": 833,
       "audit": 105,
       "scope": 11,
       "stage": 33,
@@ -31,7 +31,7 @@
       "render-surface": 7
     },
     "coveredByClass": {
-      "function": 497,
+      "function": 498,
       "audit": 66,
       "scope": 11,
       "stage": 11,
@@ -5218,6 +5218,18 @@
     },
     {
       "unitClass": "function",
+      "unitId": "function:matchedCreationFlags",
+      "minMechanism": "none",
+      "coveredBy": [
+        {
+          "file": "tests/unit/t349-composer-scope-settings.test.ts",
+          "mechanism": "cli"
+        }
+      ],
+      "status": "covered"
+    },
+    {
+      "unitClass": "function",
       "unitId": "function:matchSubagentInflight",
       "minMechanism": "none",
       "coveredBy": [
@@ -5442,6 +5454,18 @@
       "coveredBy": [
         {
           "file": "tests/unit/t277-validate-grid-nearest-stock.test.ts",
+          "mechanism": "cli"
+        }
+      ],
+      "status": "covered"
+    },
+    {
+      "unitClass": "function",
+      "unitId": "function:nearestUncappedStock",
+      "minMechanism": "none",
+      "coveredBy": [
+        {
+          "file": "tests/unit/t349-composer-scope-settings.test.ts",
           "mechanism": "cli"
         }
       ],
@@ -8540,18 +8564,6 @@
       "minMechanism": "none",
       "coveredBy": [],
       "status": "UNCOVERED"
-    },
-    {
-      "unitClass": "function",
-      "unitId": "function:stockSettingsAdvisory",
-      "minMechanism": "none",
-      "coveredBy": [
-        {
-          "file": "tests/unit/t349-composer-scope-settings.test.ts",
-          "mechanism": "cli"
-        }
-      ],
-      "status": "covered"
     },
     {
       "unitClass": "function",
@@ -13584,6 +13596,10 @@
         },
         {
           "file": "tests/unit/t340-default-scope-resolver.test.ts",
+          "mechanism": "cli"
+        },
+        {
+          "file": "tests/unit/t349-composer-scope-settings.test.ts",
           "mechanism": "cli"
         }
       ],

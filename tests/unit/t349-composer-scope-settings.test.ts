@@ -1,39 +1,37 @@
 // covers: function:validateScopeSettings, function:scopeSettingsOffList,
 // function:ceremonyOffList, function:scopeSettingsOf,
-// function:stockSettingsAdvisory, function:composerProposalErrors,
-// function:killSwitchAdvisories, subcommand:aidlc-utility:config-get,
-// subcommand:aidlc-graph:validate-grid,
-// subcommand:aidlc-utility:scope-change
+// function:composerProposalErrors, function:matchedCreationFlags,
+// function:nearestUncappedStock, function:killSwitchAdvisories,
+// subcommand:aidlc-graph:validate-grid, subcommand:aidlc-utility:config-get,
+// subcommand:aidlc-utility:scope-change, subcommand:aidlc-utility:intent-create
 //
 // t349 - the composer's scope settings. A front/report proposal carries the four
 // scope-file settings (sensors, learnings, summary_confirmation, review_cap)
 // beside its grid; the validator checks each against the words the scope loader
 // accepts, echoes the accepted set in key order, and names what it switches off
-// in summary.off, advising when a grid identical to a stock scope's carries
-// values none of those scopes declare. A routed final run (--matched <stock> or
-// --custom) requires the settings and a Guard Policy, and --matched binds the
-// grid, settings, and Guard Policy to that stock scope, because a matched
-// proposal writes no scope file. A custom scope file declaring those
-// values, as the composer's Step 10 writes it, is then honored by the resolvers
-// the runtime reads, and its off list agrees with the one the gate showed.
-// Mid-workflow the settings are per-intent switches: the route never offers
-// --review as a way to lift a scope's review cap (an override only lowers), the
-// route past a cap is one scope change that also clears a stored lowering, an
-// `on` switch loses to a kill switch (so the route names the switch instead),
-// and a settings-only request presents no gate and runs no recompose.
+// in summary.off. A routed final run (--matched <stock> or --custom) requires
+// the settings and a Guard Policy. A matched proposal writes no scope file, so
+// the settings it changes apply to this piece of work only: --matched keeps the
+// stock grid, accepts any ceremony value and reviews at or below the stock cap,
+// and echoes the creation flags that apply them, which reach the new workflow
+// without writing a scope. A custom scope file declaring the values is honored
+// by the resolvers. Mid-workflow, settings requests become next flags the
+// conductor applies without a gate; stronger reviews than the running scope
+// allows move the work to the nearest uncapped stock scope; a kill switch is
+// reported, never searched for.
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   composerProposalErrors,
   killSwitchAdvisories,
+  matchedCreationFlags,
   nearestStockScopes,
+  nearestUncappedStock,
   SCOPE_SETTING_KEYS,
   scopeSettingsOf,
-  stockSettingsAdvisory,
   validateScopeSettings,
 } from "../../core/tools/aidlc-graph.ts";
 import {
@@ -53,14 +51,13 @@ import {
   cleanupTestProject,
   createTestProject,
   FIXTURES_DIR,
+  removeWorkspaceRecord,
   runOrchestrateNext,
   seedAidlcMemory,
   seedStateFile,
   seededRecordDir,
-  setupIntegrationProject,
   withEnvAndFreshCaches,
 } from "../harness/fixtures.ts";
-import { NATIVE_FIXTURE_SETUP_TIMEOUT_MS } from "../harness/test-budget.ts";
 
 const BUN = process.execPath;
 const GRAPH_TOOL = join(AIDLC_SRC, "tools", "aidlc-graph.ts");
@@ -83,6 +80,7 @@ const QUICK_FIX = {
   summary_confirmation: "on",
   review_cap: "none",
 } as const;
+const STOCK_ON = { sensors: "on", learnings: "on", summary_confirmation: "on", review_cap: "adversarial" } as const;
 const tempDirs: string[] = [];
 
 afterEach(() => {
@@ -107,8 +105,8 @@ function runValidateGrid(proj: string, proposal: unknown, extra: string[] = []) 
   return { rc: result.status ?? -1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
 
-function featureGrid(): Record<string, "EXECUTE" | "SKIP"> {
-  return withEnvAndFreshCaches(POLICY_ENV, () => loadScopeMapping().feature.stages);
+function stockGrid(scope: string): Record<string, "EXECUTE" | "SKIP"> {
+  return withEnvAndFreshCaches(POLICY_ENV, () => loadScopeMapping()[scope].stages);
 }
 
 describe("t349 (1) validateScopeSettings checks the four settings", () => {
@@ -178,9 +176,7 @@ describe("t349 (2) the off list is the same whether it comes from settings or a 
   });
 });
 
-describe("t349 (3) a grid identical to a stock scope's is checked against its settings", () => {
-  const STOCK_ON = { sensors: "on", learnings: "on", summary_confirmation: "on", review_cap: "adversarial" } as const;
-
+describe("t349 (3) stock values and the nearest uncapped scope", () => {
   test("scopeSettingsOf reads declared values and fills the resolver defaults", () => {
     withEnvAndFreshCaches(POLICY_ENV, () => {
       expect(scopeSettingsOf("express")).toEqual({
@@ -188,61 +184,52 @@ describe("t349 (3) a grid identical to a stock scope's is checked against its se
       });
       // feature declares no review_cap, so the cap reads as adversarial (no cap).
       expect(scopeSettingsOf("feature")).toEqual(STOCK_ON);
+      expect(scopeSettingsOf("bugfix")?.review_cap).toBe("advisory");
       expect(scopeSettingsOf("no-such-scope")).toBeNull();
     });
   });
 
-  test("an advisory names every exact stock match only when none of them agrees", () => {
+  test("nearestUncappedStock walks the ranking and skips capped scopes", () => {
     withEnvAndFreshCaches(POLICY_ENV, () => {
-      const tie = [
-        { scope: "enterprise", diff: 0 },
-        { scope: "feature", diff: 0 },
-        { scope: "express", diff: 7 },
-      ];
-      expect(stockSettingsAdvisory(STOCK_ON, tie)).toBeNull();
-      expect(stockSettingsAdvisory(QUICK_FIX, tie)).toBe(
-        "Scope settings match no stock scope with this exact grid (" +
-          "enterprise: sensors on, learnings on, summary_confirmation on, review_cap adversarial; " +
-          "feature: sensors on, learnings on, summary_confirmation on, review_cap adversarial). " +
-          "A matched proposal carries its stock scope's values; keep different values only on a custom proposal.",
-      );
-      // No identical stock grid: nothing to compare, so a custom proposal is left alone.
-      expect(stockSettingsAdvisory(QUICK_FIX, [{ scope: "express", diff: 7 }])).toBeNull();
+      expect(nearestUncappedStock([
+        { scope: "bugfix", diff: 0 },
+        { scope: "poc", diff: 3 },
+        { scope: "refactor", diff: 4 },
+      ])).toEqual({ scope: "refactor", diff: 4 });
+      expect(nearestUncappedStock([{ scope: "express", diff: 0 }, { scope: "bugfix", diff: 2 }])).toBeNull();
+      expect(nearestUncappedStock([])).toBeNull();
     });
   });
 });
 
 describe("t349 (4) validate-grid carries the settings with the grid", () => {
-  test("accepted settings are echoed, fill summary.off, and a stock-grid mismatch is advised", () => {
+  test("accepted settings are echoed and fill summary.off", () => {
     const proj = project();
-    const ok = runValidateGrid(proj, { stages: featureGrid(), scopeSettings: QUICK_FIX });
+    const ok = runValidateGrid(proj, { stages: stockGrid("feature"), scopeSettings: QUICK_FIX });
     expect(ok.rc, ok.stderr).toBe(0);
     const result = JSON.parse(ok.stdout);
     expect(result.valid).toBe(true);
     expect(result.scope_settings).toEqual(QUICK_FIX);
     expect(result.summary.off).toEqual(["reviewers", "sensors", "learnings ritual"]);
-    expect(result.advisories.some((line: string) => line.startsWith("Scope settings match no stock scope"))).toBe(true);
-    const stock = runValidateGrid(proj, {
-      stages: featureGrid(),
-      scopeSettings: { sensors: "on", learnings: "on", summary_confirmation: "on", review_cap: "adversarial" },
-    });
-    expect(stock.rc, stock.stderr).toBe(0);
-    expect(JSON.parse(stock.stdout).advisories).toEqual([]);
+    expect(result.advisories).toEqual([]);
   });
 
-  test("a proposal without settings validates as before", () => {
+  test("a proposal without settings validates as before, and every run names the nearest uncapped scope", () => {
     const proj = project();
-    const bare = runValidateGrid(proj, { stages: featureGrid() });
+    const bare = runValidateGrid(proj, { stages: stockGrid("bugfix") });
     expect(bare.rc, bare.stderr).toBe(0);
     const result = JSON.parse(bare.stdout);
     expect(result.scope_settings).toBeUndefined();
     expect(result.summary.off).toEqual([]);
+    const expected = withEnvAndFreshCaches(POLICY_ENV, () => nearestUncappedStock(result.nearest_stock));
+    expect(result.nearest_uncapped).toEqual(expected);
+    expect(withEnvAndFreshCaches(POLICY_ENV, () => scopeSettingsOf(result.nearest_uncapped.scope)?.review_cap)).toBe("adversarial");
   });
 
   test("rejected settings fail the grid and are not echoed", () => {
     const proj = project();
     const bad = runValidateGrid(proj, {
-      stages: featureGrid(),
+      stages: stockGrid("feature"),
       scopeSettings: { ...QUICK_FIX, sensors: "disabled" },
     });
     expect(bad.rc).toBe(1);
@@ -254,8 +241,7 @@ describe("t349 (4) validate-grid carries the settings with the grid", () => {
   });
 });
 
-describe("t349 (4b) a routed proposal binds what the gate shows to what runs", () => {
-  const STOCK_ON = { sensors: "on", learnings: "on", summary_confirmation: "on", review_cap: "adversarial" } as const;
+describe("t349 (5) a matched plan applies its changes to this piece of work only", () => {
   const given = { scopeSettings: true, guardPolicy: true };
 
   test("composerProposalErrors requires the settings and a Guard Policy on either route", () => {
@@ -265,56 +251,109 @@ describe("t349 (4b) a routed proposal binds what the gate shows to what runs", (
         "A custom proposal must carry scopeSettings (sensors, learnings, summary_confirmation, review_cap).",
         "A custom proposal must carry a Guard Policy (--guard-policy or a guardPolicy member).",
       ]);
-      // A custom proposal may keep different values on a stock grid: that is a settings flip.
       expect(composerProposalErrors(null, given, { ...QUICK_FIX }, "off", nearest)).toEqual([]);
     });
   });
 
-  test("matched binds the grid, each setting, and the Guard Policy, accepting strict", () => {
+  test("matched keeps the stock grid and Guard Policy, takes any ceremony, and refuses reviews above the cap", () => {
     withEnvAndFreshCaches(POLICY_ENV, () => {
-      const feature = loadScopeMapping().feature.stages;
-      const nearest = nearestStockScopes(feature);
-      expect(composerProposalErrors("feature", given, { ...STOCK_ON }, "relaxed", nearest)).toEqual([]);
-      expect(composerProposalErrors("feature", given, { ...STOCK_ON }, "strict", nearest)).toEqual([]);
-      expect(composerProposalErrors("feature", given, { ...STOCK_ON, sensors: "off" }, "off", nearest)).toEqual([
-        'Stock scope "feature" declares sensors on, but the proposal shows off. Show the stock value, or propose it as custom.',
+      const featureNearest = nearestStockScopes(loadScopeMapping().feature.stages);
+      expect(composerProposalErrors("feature", given, { ...STOCK_ON }, "relaxed", featureNearest)).toEqual([]);
+      expect(composerProposalErrors("feature", given, { ...STOCK_ON }, "strict", featureNearest)).toEqual([]);
+      // Ceremonies either way and reviews down are per-workflow changes, so they pass.
+      expect(composerProposalErrors("feature", given, { ...QUICK_FIX }, "relaxed", featureNearest)).toEqual([]);
+      expect(composerProposalErrors("feature", given, { ...STOCK_ON }, "off", featureNearest)).toEqual([
         'Stock scope "feature" defaults Guard Policy to relaxed, but the proposal shows off. Show relaxed (or strict, which creation applies), or propose it as custom.',
       ]);
-      // express's grid differs from feature's, so naming express for this grid is refused.
-      const [grid] = composerProposalErrors("express", given, scopeSettingsOf("express"), "relaxed", nearest);
+      const bugfixNearest = nearestStockScopes(loadScopeMapping().bugfix.stages);
+      expect(composerProposalErrors("bugfix", given, { ...STOCK_ON }, "relaxed", bugfixNearest)).toEqual([
+        'Stock scope "bugfix" caps reviews at advisory, and a setting for one piece of work can only lower that; to run adversarial reviews, propose it as custom.',
+      ]);
+      const [grid] = composerProposalErrors("express", given, scopeSettingsOf("express"), "off", featureNearest);
       expect(grid).toStartWith('A matched proposal carries stock scope "express"\'s grid verbatim; this grid differs on ');
-      expect(composerProposalErrors("nope", given, { ...STOCK_ON }, "relaxed", nearest)).toEqual([
+      expect(composerProposalErrors("nope", given, { ...STOCK_ON }, "relaxed", featureNearest)).toEqual([
         '--matched names "nope", which is not a stock scope.',
       ]);
     });
   });
 
-  test("the CLI echoes the route when it passes and refuses a mismatch or a double route", () => {
+  test("matchedCreationFlags names exactly the values that differ from the stock scope", () => {
+    withEnvAndFreshCaches(POLICY_ENV, () => {
+      expect(matchedCreationFlags("feature", { ...STOCK_ON })).toEqual([]);
+      expect(matchedCreationFlags("feature", { ...QUICK_FIX })).toEqual(["--sensors off", "--learnings off", "--review none"]);
+      // bugfix already caps at advisory, so advisory needs no flag; turning learnings off does.
+      expect(matchedCreationFlags("bugfix", { ...STOCK_ON, learnings: "off", review_cap: "advisory" })).toEqual(["--learnings off"]);
+      expect(matchedCreationFlags("express", { ...QUICK_FIX, sensors: "on" })).toEqual([
+        "--sensors on", "--summary-confirmation on",
+      ]);
+    });
+  });
+
+  test("the CLI echoes the route and creation flags, and refuses reviews above the cap or a double route", () => {
     const proj = project();
-    const stages = featureGrid();
-    const ok = runValidateGrid(proj, { stages, scopeSettings: STOCK_ON, guardPolicy: "relaxed" }, ["--matched", "feature"]);
+    const ok = runValidateGrid(proj, { stages: stockGrid("feature"), scopeSettings: QUICK_FIX, guardPolicy: "relaxed" }, ["--matched", "feature"]);
     expect(ok.rc, ok.stdout + ok.stderr).toBe(0);
-    expect(JSON.parse(ok.stdout)).toMatchObject({ valid: true, routing: "matched", matched_scope: "feature", advisories: [] });
-    const drift = runValidateGrid(proj, { stages, scopeSettings: QUICK_FIX, guardPolicy: "relaxed" }, ["--matched", "feature"]);
-    expect(drift.rc).toBe(1);
-    const refused = JSON.parse(drift.stdout);
+    expect(JSON.parse(ok.stdout)).toMatchObject({
+      valid: true,
+      routing: "matched",
+      matched_scope: "feature",
+      creation_flags: ["--sensors off", "--learnings off", "--review none"],
+    });
+    const up = runValidateGrid(proj, { stages: stockGrid("bugfix"), scopeSettings: STOCK_ON, guardPolicy: "relaxed" }, ["--matched", "bugfix"]);
+    expect(up.rc).toBe(1);
+    const refused = JSON.parse(up.stdout);
     expect(refused.routing).toBeUndefined();
+    expect(refused.creation_flags).toBeUndefined();
     expect(refused.errors).toContain(
-      'Stock scope "feature" declares review_cap adversarial, but the proposal shows none. Show the stock value, or propose it as custom.',
+      'Stock scope "bugfix" caps reviews at advisory, and a setting for one piece of work can only lower that; to run adversarial reviews, propose it as custom.',
     );
-    const custom = runValidateGrid(proj, { stages, scopeSettings: QUICK_FIX, guardPolicy: "relaxed" }, ["--custom"]);
+    const custom = runValidateGrid(proj, { stages: stockGrid("bugfix"), scopeSettings: STOCK_ON, guardPolicy: "relaxed" }, ["--custom"]);
     expect(custom.rc, custom.stdout + custom.stderr).toBe(0);
-    expect(JSON.parse(custom.stdout)).toMatchObject({ valid: true, routing: "custom", advisories: [] });
-    const both = runValidateGrid(proj, { stages, scopeSettings: STOCK_ON }, ["--matched", "feature", "--custom"]);
+    expect(JSON.parse(custom.stdout)).toMatchObject({ valid: true, routing: "custom" });
+    expect(JSON.parse(custom.stdout).creation_flags).toBeUndefined();
+    const both = runValidateGrid(proj, { stages: stockGrid("feature"), scopeSettings: STOCK_ON }, ["--matched", "feature", "--custom"]);
     expect(both.rc).toBe(1);
     expect(both.stderr).toContain("validate-grid: pass --matched <stock-scope> or --custom, not both.");
-    const bare = runValidateGrid(proj, { stages }, ["--matched"]);
+    const bare = runValidateGrid(proj, { stages: stockGrid("feature") }, ["--matched"]);
     expect(bare.rc).toBe(1);
     expect(bare.stderr).toContain("validate-grid: --matched requires <stock-scope>.");
   });
+
+  test("the creation flags reach the new workflow, and no scope file is written", () => {
+    // An empty workspace, the way t198 makes one: no intent yet, so next creates one.
+    const proj = createTestProject();
+    tempDirs.push(proj);
+    removeWorkspaceRecord(proj);
+    // The conductor appends creationFlags after --scope; next carries them into creation.
+    const next = runOrchestrateNext(ORCH, proj, ["--scope", "bugfix", "--learnings", "off", "--review", "none", "--", "fix the token bug"], {
+      cwd: proj,
+      env: process.env,
+    });
+    const line = next.out.split("\n").find((entry) => entry.trim().startsWith("{"));
+    const message = String((JSON.parse(line ?? "{}") as { message?: unknown }).message);
+    expect(message).toContain("--learnings off");
+    expect(message).toContain("--review none");
+    const created = spawnSync(BUN, [UTIL, "intent-create", "--scope", "bugfix", "--learnings", "off", "--review", "none", "--project-dir", proj], {
+      encoding: "utf-8",
+      env: { ...process.env, CLAUDE_PROJECT_DIR: proj },
+    });
+    expect(created.status, created.stdout + created.stderr).toBe(0);
+    const intents = join(proj, "aidlc", "spaces", "default", "intents");
+    const record = readFileSync(join(intents, "active-intent"), "utf-8").trim();
+    const state = readFileSync(join(intents, record, "aidlc-state.md"), "utf-8");
+    expect(state).toContain("- **Scope**: bugfix");
+    expect(state).toContain("- **Learnings**: off (set by you)");
+    expect(state).toContain("- **Review Override**: none");
+    withEnvAndFreshCaches(POLICY_ENV, () => {
+      expect(resolveCeremony("learnings", "bugfix", state).value).toBe("off");
+      expect(resolveReviewClass("adversarial", "bugfix", state)).toBe("none");
+    });
+    // Stock bugfix itself is untouched and no composed scope was written.
+    expect(existsSync(join(proj, "aidlc", "scopes")) ? readdirSync(join(proj, "aidlc", "scopes")) : []).toEqual([]);
+  });
 });
 
-describe("t349 (4c) a kill switch wins over an on setting, at the gate and mid-workflow", () => {
+describe("t349 (6) a kill switch wins over an on setting, at the gate and mid-workflow", () => {
   const ALL_ON = { sensors: "on", learnings: "on", summary_confirmation: "on", review_cap: "adversarial" } as const;
   const switches = (on: string[]) =>
     Object.fromEntries(CEREMONY_KEYS.map((key) => [CEREMONY_ENV[key], on.includes(key) ? "1" : "0"]));
@@ -336,7 +375,7 @@ describe("t349 (4c) a kill switch wins over an on setting, at the gate and mid-w
 
   test("validate-grid reports the switch beside a routed proposal", () => {
     const proj = project();
-    writeFileSync(join(proj, "p.json"), JSON.stringify({ stages: featureGrid(), scopeSettings: ALL_ON, guardPolicy: "relaxed" }));
+    writeFileSync(join(proj, "p.json"), JSON.stringify({ stages: stockGrid("feature"), scopeSettings: ALL_ON, guardPolicy: "relaxed" }));
     const run = spawnSync(BUN, [
       GRAPH_TOOL, "validate-grid", "--proposal", join(proj, "p.json"), "--custom", "--project-dir", proj,
     ], { encoding: "utf-8", env: { ...process.env, CLAUDE_PROJECT_DIR: proj, ...switches(["learnings"]) } });
@@ -362,98 +401,13 @@ describe("t349 (4c) a kill switch wins over an on setting, at the gate and mid-w
       expect(set.status, key + set.stdout + set.stderr).toBe(0);
       const got = spawnSync(BUN, [UTIL, "config-get", flags[key], "--project-dir", proj], { encoding: "utf-8", env });
       expect(got.status, key + got.stdout + got.stderr).toBe(0);
-      // This is the reading the composer checks before it names an on switch.
+      // This is the reading the composer and conductor take before reporting a kill switch.
       expect(got.stdout.trim(), key).toBe(`off (from env ${CEREMONY_ENV[key]})`);
     }
   });
 });
 
-describe("t349 (4d) the recovery names where a kill switch is set and when it clears", () => {
-  // An installed project with the machine layer isolated, the way t298 does it.
-  function installed(): { proj: string; run: (tool: string, args: string[]) => ReturnType<typeof spawnSync> } {
-    const proj = setupIntegrationProject();
-    tempDirs.push(proj);
-    const machine = mkdtempSync(join(tmpdir(), "aidlc-t349-machine-"));
-    tempDirs.push(machine);
-    const env: Record<string, string | undefined> = {
-      ...process.env,
-      AIDLC_INSTALL_ROOT: machine,
-      AIDLC_BIN_DIR: join(machine, "bin"),
-      CLAUDE_PROJECT_DIR: proj,
-    };
-    for (const key of CEREMONY_KEYS) delete env[CEREMONY_ENV[key]];
-    const run = (tool: string, args: string[]) =>
-      spawnSync(BUN, [join(proj, ".claude", "tools", tool), ...args, "--project-dir", proj], { encoding: "utf-8", env });
-    return { proj, run };
-  }
-  const out = (res: ReturnType<typeof spawnSync>) => `${res.stdout ?? ""}${res.stderr ?? ""}`;
-
-  test("each recorded layer is listed with its tag, holds mid-workflow, and clears with its own flag after", () => {
-    for (const [flag, tag] of [["local", "local"], ["project", "project"], ["global", "machine"]]) {
-      const { proj, run } = installed();
-      const record = run("aidlc.ts", ["config", "flags", "--bypass", "AIDLC_DISABLE_SENSORS", `--${flag}`, "--yes"]);
-      expect(record.status, `${flag}: ${out(record)}`).toBe(0);
-      expect(out(run("aidlc.ts", ["config", "flags", "--show"]))).toContain(`Bypass enabled: AIDLC_DISABLE_SENSORS [${tag}]`);
-      seedStateFile(proj, join(FIXTURES_DIR, "state-mid-ideation.md"));
-      const effective = () => String(run("aidlc-utility.ts", ["config-get", "sensors"]).stdout).trim();
-      expect(effective(), flag).toBe("off (from env AIDLC_DISABLE_SENSORS)");
-      // While the workflow is active, config changes refuse, so the ceremony stays off for it.
-      const refused = run("aidlc.ts", ["config", "flags", "--clear-bypass", "AIDLC_DISABLE_SENSORS", `--${flag}`, "--yes"]);
-      expect(refused.status, flag).not.toBe(0);
-      expect(out(refused)).toContain("refusing to refresh while 1 workflow(s) are active");
-      expect(effective(), flag).toBe("off (from env AIDLC_DISABLE_SENSORS)");
-      // Once no workflow is active, that layer's flag clears it.
-      const statePath = join(seededRecordDir(proj), "aidlc-state.md");
-      writeFileSync(statePath, readFileSync(statePath, "utf-8").replace("- **Status**: Running", "- **Status**: Completed"));
-      const cleared = run("aidlc.ts", ["config", "flags", "--clear-bypass", "AIDLC_DISABLE_SENSORS", `--${flag}`, "--yes"]);
-      expect(cleared.status, `${flag}: ${out(cleared)}`).toBe(0);
-      expect(out(run("aidlc.ts", ["config", "flags", "--show"]))).not.toContain("Bypass enabled: AIDLC_DISABLE_SENSORS");
-      expect(effective(), flag).toBe("on (from scope feature)");
-    }
-  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
-
-  test("stacked layers surface one at a time, and an environment switch outlasts every clear", () => {
-    const { proj, run } = installed();
-    const showSensors = () =>
-      out(run("aidlc.ts", ["config", "flags", "--show"])).split("\n").filter((line) => line.includes("Bypass enabled: AIDLC_DISABLE_SENSORS"));
-    for (const flag of ["local", "global"]) {
-      const record = run("aidlc.ts", ["config", "flags", "--bypass", "AIDLC_DISABLE_SENSORS", `--${flag}`, "--yes"]);
-      expect(record.status, `${flag}: ${out(record)}`).toBe(0);
-    }
-    // Only the winning layer is listed, so one clear leaves the next one in force.
-    expect(showSensors().map((line) => line.trim())).toEqual(["Bypass enabled: AIDLC_DISABLE_SENSORS [local]"]);
-    expect(run("aidlc.ts", ["config", "flags", "--clear-bypass", "AIDLC_DISABLE_SENSORS", "--local", "--yes"]).status).toBe(0);
-    expect(showSensors().map((line) => line.trim())).toEqual(["Bypass enabled: AIDLC_DISABLE_SENSORS [machine]"]);
-    expect(run("aidlc.ts", ["config", "flags", "--clear-bypass", "AIDLC_DISABLE_SENSORS", "--global", "--yes"]).status).toBe(0);
-    expect(showSensors()).toEqual([]);
-    // With a real environment variable set as well, clearing the recorded switch
-    // lists nothing yet the ceremony stays off: that is the loop's last step.
-    expect(run("aidlc.ts", ["config", "flags", "--bypass", "AIDLC_DISABLE_SENSORS", "--project", "--yes"]).status).toBe(0);
-    expect(run("aidlc.ts", ["config", "flags", "--clear-bypass", "AIDLC_DISABLE_SENSORS", "--project", "--yes"]).status).toBe(0);
-    seedStateFile(proj, join(FIXTURES_DIR, "state-mid-ideation.md"));
-    const envRun = spawnSync(BUN, [join(proj, ".claude", "tools", "aidlc-utility.ts"), "config-get", "sensors", "--project-dir", proj], {
-      encoding: "utf-8",
-      env: { ...process.env, CLAUDE_PROJECT_DIR: proj, AIDLC_DISABLE_SENSORS: "1" },
-    });
-    expect(showSensors()).toEqual([]);
-    expect(String(envRun.stdout).trim()).toBe("off (from env AIDLC_DISABLE_SENSORS)");
-  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
-
-  test("a clear without a layer is refused, and a real environment switch is not listed", () => {
-    const { proj, run } = installed();
-    const bare = run("aidlc.ts", ["config", "flags", "--clear-bypass", "AIDLC_DISABLE_SENSORS", "--yes"]);
-    expect(bare.status).not.toBe(0);
-    expect(out(bare)).toContain("settings mutation requires exactly one of --local, --project, or --global");
-    seedStateFile(proj, join(FIXTURES_DIR, "state-mid-ideation.md"));
-    const env = { ...process.env, AIDLC_DISABLE_LEARNINGS: "1", CLAUDE_PROJECT_DIR: proj };
-    const show = spawnSync(BUN, [join(proj, ".claude", "tools", "aidlc.ts"), "config", "flags", "--show", "--project-dir", proj], { encoding: "utf-8", env });
-    expect(out(show)).not.toContain("Bypass enabled: AIDLC_DISABLE_LEARNINGS");
-    const got = spawnSync(BUN, [join(proj, ".claude", "tools", "aidlc-utility.ts"), "config-get", "learnings", "--project-dir", proj], { encoding: "utf-8", env });
-    expect(String(got.stdout).trim()).toBe("off (from env AIDLC_DISABLE_LEARNINGS)");
-  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
-});
-
-describe("t349 (5) a custom scope written with the approved settings runs with them", () => {
+describe("t349 (7) a custom scope written with the approved settings runs with them", () => {
   test("the resolvers read each value from the scope file and agree with the gate's off list", () => {
     const proj = createTestProject();
     tempDirs.push(proj);
@@ -497,68 +451,57 @@ describe("t349 (5) a custom scope written with the approved settings runs with t
   });
 });
 
-// The in-flight message the conductor receives for `next compose`, read the way t198 does.
-function composeMessage(proj: string, args: string[]): string {
-  const res = runOrchestrateNext(ORCH, proj, ["compose", ...args], { cwd: proj, env: process.env });
-  const line = res.out.split("\n").find((entry) => entry.trim().startsWith("{"));
-  if (line === undefined) throw new Error(`no directive in: ${res.out}`);
-  const directive = JSON.parse(line) as { kind?: unknown; message?: unknown };
-  expect(directive.kind).toBe("print");
-  return String(directive.message);
-}
-
-describe("t349 (6) every composer surface names the settings contract", () => {
+describe("t349 (8) every composer surface names the settings contract", () => {
   const harnesses = ["claude", "codex", "copilot", "cursor", "kiro", "kiro-ide", "opencode"];
+  const skills = harnesses.map((harness) => `harness/${harness}/skills/aidlc/SKILL.md`);
   const surfaces = [
     "core/agents/aidlc-composer-agent.md",
     "core/knowledge/aidlc-composer-agent/composing.md",
     "core/tools/aidlc-orchestrate.ts",
-    ...harnesses.map((harness) => `harness/${harness}/skills/aidlc/SKILL.md`),
+    ...skills,
   ];
+  const read = (surface: string) => readFileSync(join(REPO_ROOT, surface), "utf-8");
 
   test("the agent, its knowledge, the dispatch, and each SKILL.md name every key", () => {
     for (const surface of surfaces) {
-      const text = readFileSync(join(REPO_ROOT, surface), "utf-8");
+      const text = read(surface);
       expect(text, surface).toContain("scopeSettings");
       for (const key of SCOPE_SETTING_KEYS) expect(text, `${surface} ${key}`).toContain(key);
     }
   });
 
-  test("no surface offers --review as the way to raise reviews mid-workflow", () => {
+  test("settings requests are applied, not handed back as commands to type", () => {
     for (const surface of surfaces) {
-      const text = readFileSync(join(REPO_ROOT, surface), "utf-8");
-      expect(text, surface).not.toContain("--review adversarial|advisory|none");
-      expect(text, surface).toMatch(/never lifts the running scope's `?review_cap`?/);
-      // The way past the cap clears a stored lowering in the same command.
-      expect(text, surface).toContain("--scope <name> --review adversarial");
-      // An on switch is advised only after checking that no kill switch wins,
-      // and the recovery names the layer flag a recorded switch needs.
+      const text = read(surface);
+      // Mid-workflow requests come back as next flags the conductor applies.
+      expect(text, surface).toContain("settingsFlags");
+      // A kill switch is reported in one line and never searched for.
       expect(text, surface).toContain("AIDLC_DISABLE_<NAME>");
-      expect(text, surface).toMatch(/`?--global`? for `?\[machine\]`?/);
-      // The recovery is the human's loop: the agent never searches for the switch
-      // (shell and harness settings files can hold credentials), and one clear is
-      // not enough because --show names only the layer that wins.
-      expect(text, surface).toMatch(/never look for it yourself/i);
-      expect(text, surface).toContain("until nothing is listed");
-      expect(text, surface).not.toMatch(/unset where it is set|the shell or the harness settings/);
+      expect(text, surface).toMatch(/never look for/i);
+      expect(text, surface).not.toContain("--review adversarial|advisory|none");
+      expect(text, surface).not.toMatch(/until nothing is listed|lifts both limits|the shell or the harness settings/);
+    }
+    // A matched plan's changes ride its creation flags.
+    for (const surface of ["core/agents/aidlc-composer-agent.md", "core/tools/aidlc-orchestrate.ts", ...skills]) {
+      expect(read(surface), surface).toContain("creationFlags");
     }
   });
 
   test("the gate's edit option covers the whole plan, and the composer names its route", () => {
-    for (const harness of harnesses) {
-      const text = readFileSync(join(REPO_ROOT, `harness/${harness}/skills/aidlc/SKILL.md`), "utf-8");
-      expect(text, harness).toContain("Approve / Edit the plan / Reject");
-      expect(text, harness).not.toContain("Edit the grid");
+    for (const surface of skills) {
+      const text = read(surface);
+      expect(text, surface).toContain("Approve / Edit the plan / Reject");
+      expect(text, surface).not.toContain("Edit the grid");
     }
     for (const surface of ["core/agents/aidlc-composer-agent.md", "core/knowledge/aidlc-composer-agent/composing.md"]) {
-      const text = readFileSync(join(REPO_ROOT, surface), "utf-8");
+      const text = read(surface);
       expect(text, surface).toContain("--matched");
       expect(text, surface).toContain("--custom");
     }
   });
 });
 
-describe("t349 (7) mid-workflow, reviews only go down through the per-run switch", () => {
+describe("t349 (9) mid-workflow, reviews above the cap need a scope change", () => {
   test("an adversarial override never lifts a none or advisory cap; a lower override still lowers", () => {
     withEnvAndFreshCaches(POLICY_ENV, () => {
       const raise = "- **Review Override**: adversarial\n";
@@ -569,7 +512,7 @@ describe("t349 (7) mid-workflow, reviews only go down through the per-run switch
     });
   });
 
-  test("a scope change keeps a stored lowering; the prescribed command clears it", () => {
+  test("a scope change keeps a stored lowering; the returned flags clear it", () => {
     const proj = project();
     seedStateFile(proj, join(FIXTURES_DIR, "state-mid-ideation.md"));
     const effective = (args: string[]) => {
@@ -586,7 +529,7 @@ describe("t349 (7) mid-workflow, reviews only go down through the per-run switch
     expect(effective(["scope-change", "--scope", "bugfix", "--review", "none"])).toEqual({ scope: "bugfix", review: "none" });
     // Moving to an uncapped scope alone leaves the stored lowering in force.
     expect(effective(["scope-change", "--scope", "feature"])).toEqual({ scope: "feature", review: "none" });
-    // The route the composer names lifts both limits at once.
+    // The flags the composer returns for stronger reviews lift both at once.
     expect(effective(["scope-change", "--scope", "feature", "--review", "adversarial"])).toEqual({
       scope: "feature",
       review: "adversarial",
@@ -594,24 +537,35 @@ describe("t349 (7) mid-workflow, reviews only go down through the per-run switch
   });
 });
 
-describe("t349 (8) the compose dispatch carries the settings contract", () => {
-  test("front: the gate renders a Scope settings row the human can flip", () => {
+// The in-flight message the conductor receives for `next compose`, read the way t198 does.
+function composeMessage(proj: string, args: string[]): string {
+  const res = runOrchestrateNext(ORCH, proj, ["compose", ...args], { cwd: proj, env: process.env });
+  const line = res.out.split("\n").find((entry) => entry.trim().startsWith("{"));
+  if (line === undefined) throw new Error(`no directive in: ${res.out}`);
+  const directive = JSON.parse(line) as { kind?: unknown; message?: unknown };
+  expect(directive.kind).toBe("print");
+  return String(directive.message);
+}
+
+describe("t349 (10) the compose dispatch carries the settings contract", () => {
+  test("front: the gate renders a Scope settings row and appends a matched plan's creation flags", () => {
     const proj = project();
     const message = composeMessage(proj, ["fix the token bug"]);
     expect(message).toContain("scopeSettingsRationale");
     expect(message).toContain('"Scope settings: sensors <sensors>, learnings <learnings>, summary confirmation <summary_confirmation>, reviews <review_cap> - <scopeSettingsRationale>"');
+    expect(message).toContain("through the creationFlags you append to the creation command after --scope <scopeName>");
     expect(message).not.toContain("write no marker");
   });
 
-  test("in-flight: a settings-only request presents no gate and runs no recompose", () => {
+  test("in-flight: settings are applied without a gate, and a settings-only request runs no recompose", () => {
     const proj = project();
     seedStateFile(proj, join(FIXTURES_DIR, "state-mid-ideation.md"));
     const message = composeMessage(proj, ["turn sensors off"]);
     expect(message).toContain("mode in-flight");
+    expect(message).toContain("the composer returns it as settingsFlags, and you apply them with no approval gate");
     expect(message).toContain(
-      "When the composer returns empty changes.skip and changes.add (a settings-only request, or nothing earns a flip), write no marker, present no approval gate, and run no recompose",
+      "When the composer returns empty changes.skip and changes.add (a settings-only request, or nothing earns a flip), write no marker, present no approval gate, and run no recompose: apply any settingsFlags and relay the result.",
     );
-    expect(message).toContain("never lifts the running scope's review_cap");
     expect(message).not.toContain("Scope settings: sensors <sensors>");
   });
 });

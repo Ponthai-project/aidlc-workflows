@@ -222,18 +222,12 @@ Changing scope updates scope-sourced settings while keeping your overrides;
 an absent or malformed field falls back to the scope instead of blocking the run.
 
 The composer proposes these three, plus the scope's `review_cap`, at the compose
-gate. A matched proposal shows the stock scope's own values; you can flip any of
-them before approving, and a custom scope stores the approved values in its
-frontmatter, so every new intent on it starts with those values. A kill switch
-still wins: when one forces an `on` value off on this machine, the gate marks it,
-and mid-workflow the composer names the switch and where it is set rather than an
-`on` flag. The agent never searches for the switch itself; you remove it. A
-recorded switch is listed by `aidlc config flags --show` with its layer and
-cleared with `--clear-bypass <NAME>` plus `--local`, `--project`, or `--global`
-(shown as `[machine]`) once no workflow is active, since config changes refuse
-while one is. `--show` names only the layer that wins, so run it again until
-nothing is listed. A switch it never lists is an environment variable: remove
-it wherever you set it and start a new session.
+gate, and you can change any of them before approving. On a stock plan the
+values apply to this piece of work only; a custom scope stores them in its
+frontmatter, so every new intent on it starts with them. A kill switch still
+wins: the gate marks an `on` value it forces off, and mid-workflow the agent
+says in one line that the switch has to be removed outside it, without looking
+for where it is set.
 
 These switches do not remove approval gates, Plan Approval, human-turn
 authority, audit, or team cross-unit write protection. Classic turns off

@@ -602,8 +602,8 @@ keep it as advisory evidence only. Route solely on
   the human can pull it back at the gate. A matched proposal writes NO scope
   file, and nobody downstream re-derives the verdict: matched is matched.
   **After adoption, validate the adopted stock grid again** with the same
-  project-type and strictness flags, `--matched <name>`, and the stock scope's
-  own `scopeSettings` and Guard Policy (Step 8). Replace `summary` and `nearest_stock` with
+  project-type and strictness flags, `--matched <name>`, and the settings and
+  Guard Policy you propose for it (Step 8). Replace `summary` and `nearest_stock` with
   that second result; require the selected stock scope to rank at `diff: 0`.
   The proposal is not ready until its grid, summary, distance, and rendered
   stage decisions all describe this same adopted stock grid.
@@ -651,6 +651,8 @@ one SHORT line per stage (≤15 words), not a paragraph.
   "guardPolicyRationale": "<1-2 sentences: which fences this value lowers (strict: none; relaxed: plan approval and review freeze; off: those plus state transition and reviewer scope) and why an input change after approval should reopen it, or be recorded and continue>",
   "scopeSettings": { "sensors": "on | off", "learnings": "on | off", "summary_confirmation": "on | off", "review_cap": "adversarial | advisory | none" },
   "scopeSettingsRationale": "<front/report only, 1-2 sentences: which settings are off or capped and why this work does not need them, or that they match the stock scope>",
+  "creationFlags": "<matched only: the validator's creation_flags joined with spaces; empty when the settings match the stock scope>",
+  "settingsFlags": "<in-flight only: the next flags that apply a settings request; empty when there is none>",
   "changes": { "skip": ["<slug>"], "add": ["<slug>"] },
   "rationale": [{"stage": "<slug>", "reason": "<1 sentence with ARS ref>"}, "..."],
   "summary": "...from validate-grid verbatim..."
@@ -714,64 +716,59 @@ none`: the ceiling on stage reviews; `adversarial` caps nothing, `advisory`
 turns each review into one pass whose findings the human reads at the gate,
 and `none` dispatches no stage reviewer in the gated flow). Give one 1-2
 sentence `scopeSettingsRationale` naming what is off or capped and why this
-work does not need it. For `mode: "matched"` copy the stock scope's four values
-from its `.md` (a missing ceremony line means `on`; a missing `review_cap`
-means `adversarial`) and say so. For `mode: "custom"` start from the values of
-the validator's `nearest_stock[0]` scope and move one only when the evidence
-gives a reason, as a SKIP needs one (see "Scope settings" in `composing.md`).
-No value removes a gate, Plan Approval, a required question, or the audit
-trail, and a global kill switch such as `AIDLC_DISABLE_SENSORS=1` still forces
-its ceremony off whatever the scope says: when the validator's advisories name
-one forcing an `on` value off on this machine, say so beside that value in the
-settings row, because the scope stores `on` but the ceremony will not run. The validator rejects an unknown key,
-a missing key, or any other word, echoes the accepted values as
-`scope_settings`, and names what they switch off in `summary.off`. Once the four
-values are chosen, run `validate-grid` on the final grid with them and with
-its route: `--matched <scopeName>` or `--custom`. Either flag makes
-`scopeSettings` and the Guard Policy required, and `--matched` rejects a grid,
-a setting, or a Guard Policy that differs from that stock scope (Guard Policy
-may also be `strict`, which creation applies with `--guard-policy strict`),
-because a matched proposal writes no scope file and the workflow runs on the
-stock values. The proposal is not ready until that run passes: take `mode`
-from its `routing` echo (and, when matched, `scopeName` from `matched_scope`),
-and Step 10 copies its `scope_settings` echo, never a hand-typed value. For a front
-composition the conductor renders them as one gate row so the human can flip
-any of them before approving. A flip on a matched proposal is an edit, the same
-as a Guard Policy flip: convert it to `mode: "custom"` with a custom
-`scopeName` and persist the values at Step 10. In-flight, a request to turn one
-of them on or off is not a stage flip and a recompose cannot land it: leave it
-out of `changes` and name the per-intent switch the human types instead
-(`/aidlc --sensors on|off`, `--learnings on|off`, or `--summary-confirmation
-on|off`; `$aidlc` on Codex). Before naming an `on` switch, read the effective
-value with `{{INVOKE}} engine config get <sensors|learnings|summary-confirmation>`:
-when it reports `from env AIDLC_DISABLE_<NAME>`, that kill switch wins over
-every intent and scope value, so say the `on` switch cannot restore it and that
-the human removes the switch outside the agent. Never look for it yourself: do
-not open shell startup files, environment listings, or harness settings files,
-which can hold credentials; `config get` is the only reading you take. Give the
-human this loop instead. `{{INVOKE}} config flags --show` lists the recorded
-switch that wins as `Bypass enabled: AIDLC_DISABLE_<NAME> [local|project|machine]`;
-they clear that layer with `{{INVOKE}} config flags --clear-bypass
-AIDLC_DISABLE_<NAME>` plus its flag (`--local`, `--project`, or
-`--global` for `[machine]`) and `--yes` once no workflow is active (config
-changes refuse while one is), then run `--show` again and repeat
-until nothing is listed, because it shows only the layer that wins. If `--show` lists nothing, the
-switch is an environment variable they set; they remove it wherever they set
-it and start a new session. The ceremony stays off for the rest of this
-workflow either way.
-Reviews only go down that way: `--review advisory|none` lowers them, and
-`--review adversarial` clears an earlier lowering but
-never lifts the running scope's `review_cap`. For stronger reviews than that
-cap allows, name the cap and give the one command that lifts both limits:
-`/aidlc --scope <name> --review adversarial`, a change to a scope whose
-`review_cap` allows them (it also recalculates the pending stages), with
-`--review adversarial` in the same command because a scope change alone keeps
-an earlier lowering. Then say what reviews will run: each stage's own review
-class, up to the new scope's cap. Never offer `--review` alone as the way past
-the cap.
-A request that is only about settings returns empty `changes.skip` and
-`changes.add`, and the conductor then presents no gate and runs no recompose;
-a mixed request keeps its stage delta and names the setting route beside it.
+work does not need it. Start from the values of the scope you route to (the
+stock scope for `mode: "matched"`, the validator's `nearest_stock[0]` for
+`mode: "custom"`; a missing ceremony line means `on`, a missing `review_cap`
+means `adversarial`) and move one only when the evidence gives a reason, as a
+SKIP needs one (see "Scope settings" in `composing.md`). No value removes a
+gate, Plan Approval, a required question, or the audit trail. A global kill
+switch such as `AIDLC_DISABLE_SENSORS=1` still forces its ceremony off
+whatever the scope says: when the validator's advisories name one forcing an
+`on` value off on this machine, say so beside that value in the settings row.
+
+Once the four values are chosen, run `validate-grid` on the final grid with
+them and with its route: `--matched <scopeName>` or `--custom`. Either flag
+makes `scopeSettings` and the Guard Policy required; the validator rejects an
+unknown key, a missing key, or any other word, echoes the accepted values as
+`scope_settings`, and names what they switch off in `summary.off`. A matched
+proposal writes no scope file, so settings that differ from its stock scope
+apply to this piece of work only: `--matched` accepts any ceremony value and
+any review level at or below the stock scope's cap, and echoes the exact
+`creation_flags` that apply them (for example `--learnings off --review
+none`). Copy them into `creationFlags`; the conductor appends them to the
+creation command. `--matched` rejects a grid that differs from the stock
+scope, reviews above its cap, and a Guard Policy other than its default or
+`strict`, because no per-workflow setting can deliver those. The proposal is
+not ready until that run passes: take `mode` from its `routing` echo (and,
+when matched, `scopeName` from `matched_scope`), and Step 10 copies the
+`scope_settings` echo of a custom proposal, never a hand-typed value.
+
+For a front composition the conductor renders the settings as one gate row,
+and whatever the human asks for there is done. Changing a setting on a matched
+proposal keeps it matched: revalidate with `--matched`, and the new
+`creation_flags` carry the change. Only raising reviews above the stock
+scope's cap, or lowering its Guard Policy, needs a scope of its own: convert
+the proposal to `mode: "custom"` with a custom `scopeName` and persist the
+values at Step 10.
+
+In-flight, a request to turn one of these on or off is not a stage flip and a
+recompose cannot land it, so leave it out of `changes` and return
+`settingsFlags`: the `next` flags that apply it to the running work, which the
+conductor runs without a gate. Use `--sensors on|off`, `--learnings on|off`,
+`--summary-confirmation on|off`, or `--review advisory|none` to lower
+reviews; `--review adversarial` clears an earlier lowering. When the running
+scope's `review_cap` is below the requested level (read that one scope's
+`.md`), only a different scope can deliver it: use `--scope <the validator's
+nearest_uncapped.scope> --review <requested level>`, which also recalculates
+the pending stages, and say so in the rationale. Before returning an `on`
+switch, read the effective value with `{{INVOKE}} engine config get
+<sensors|learnings|summary-confirmation>`: when it reports `from env
+AIDLC_DISABLE_<NAME>`, a kill switch set on this machine overrides every
+setting, so return no flag for it and say in one line that it has to be
+removed outside the agent. Never look for where it is set: do not open shell
+startup files, environment listings, or harness settings files, which can
+hold credentials; `config get` is the only reading you take. A request that is
+only about settings returns empty `changes.skip` and `changes.add`.
 
 The `ars.total` composite is an ADVISORY heuristic index: the weights in Step
 2.3 are uncalibrated priors, and nothing deterministic routes on the number.
@@ -855,9 +852,10 @@ On **Edit**, apply the requested grid, Guard Policy, or settings changes, re-run
 rebuild both `summary` and the full stage-decision table before re-presenting.
 For in-flight, also rebuild the exact `changes.skip` / `changes.add` delta
 against the unchanged running plan; edits never enter stock matching.
-If the proposal was `matched` and an edit changes the adopted stock grid, its
-Guard Policy, or any of its scope settings, convert it to `mode: "custom"` and
-assign a custom `scopeName`; it no longer
+If the proposal was `matched` and an edit changes the adopted stock grid,
+lowers its Guard Policy, or raises reviews above its cap,
+convert it to `mode: "custom"` and assign a custom `scopeName` (any other
+settings change stays matched, Step 8); it no longer
 matches the stock plan and approval must follow the custom persistence path.
 Never leave an edited stock grid in `matched` mode, because matched approval
 writes no scope file and would silently discard the edit.
