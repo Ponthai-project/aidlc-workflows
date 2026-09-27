@@ -207,7 +207,9 @@ describe("t241 OpenCode adapter command boundary and transition filter", () => {
         "}",
       ].join("\n"),
     );
-    const { client } = fakeClient();
+    // A child (task-tool) session is sent as the main session that owns it,
+    // since only the main session has a binding.
+    const { client } = fakeClient({ "S-OC-child": "S-OC-worker", "S-OC-worker": "S-OC" });
     const adapter = await createTestAdapter(client, root);
     const before = adapter["tool.execute.before"];
     await before({ tool: "write", sessionID: "S-OC", callID: "w" }, { args: { filePath: join(root, "src", "a.ts") } });
@@ -215,9 +217,13 @@ describe("t241 OpenCode adapter command boundary and transition filter", () => {
       { tool: "task", sessionID: "S-OC", callID: "t" },
       { args: { subagent_type: "aidlc-developer-agent", prompt: "AIDLC-UNIT: todo-core" } },
     );
+    await before(
+      { tool: "write", sessionID: "S-OC-child", callID: "cw" },
+      { args: { filePath: join(root, "src", "b.ts") } },
+    );
     const sessions = readFileSync(capture, "utf-8").trim().split("\n")
       .map((line) => (JSON.parse(line) as { session_id?: unknown }).session_id);
-    expect(sessions).toEqual(["S-OC", "S-OC"]);
+    expect(sessions).toEqual(["S-OC", "S-OC", "S-OC"]);
   });
 
   test("rejects compound aidlc commands but leaves one invocation and unrelated bash alone", async () => {
