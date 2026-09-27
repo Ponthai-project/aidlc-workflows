@@ -412,6 +412,33 @@ describe("t349 (4d) the recovery names where a kill switch is set and when it cl
     }
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
+  test("stacked layers surface one at a time, and an environment switch outlasts every clear", () => {
+    const { proj, run } = installed();
+    const showSensors = () =>
+      out(run("aidlc.ts", ["config", "flags", "--show"])).split("\n").filter((line) => line.includes("Bypass enabled: AIDLC_DISABLE_SENSORS"));
+    for (const flag of ["local", "global"]) {
+      const record = run("aidlc.ts", ["config", "flags", "--bypass", "AIDLC_DISABLE_SENSORS", `--${flag}`, "--yes"]);
+      expect(record.status, `${flag}: ${out(record)}`).toBe(0);
+    }
+    // Only the winning layer is listed, so one clear leaves the next one in force.
+    expect(showSensors().map((line) => line.trim())).toEqual(["Bypass enabled: AIDLC_DISABLE_SENSORS [local]"]);
+    expect(run("aidlc.ts", ["config", "flags", "--clear-bypass", "AIDLC_DISABLE_SENSORS", "--local", "--yes"]).status).toBe(0);
+    expect(showSensors().map((line) => line.trim())).toEqual(["Bypass enabled: AIDLC_DISABLE_SENSORS [machine]"]);
+    expect(run("aidlc.ts", ["config", "flags", "--clear-bypass", "AIDLC_DISABLE_SENSORS", "--global", "--yes"]).status).toBe(0);
+    expect(showSensors()).toEqual([]);
+    // With a real environment variable set as well, clearing the recorded switch
+    // lists nothing yet the ceremony stays off: that is the loop's last step.
+    expect(run("aidlc.ts", ["config", "flags", "--bypass", "AIDLC_DISABLE_SENSORS", "--project", "--yes"]).status).toBe(0);
+    expect(run("aidlc.ts", ["config", "flags", "--clear-bypass", "AIDLC_DISABLE_SENSORS", "--project", "--yes"]).status).toBe(0);
+    seedStateFile(proj, join(FIXTURES_DIR, "state-mid-ideation.md"));
+    const envRun = spawnSync(BUN, [join(proj, ".claude", "tools", "aidlc-utility.ts"), "config-get", "sensors", "--project-dir", proj], {
+      encoding: "utf-8",
+      env: { ...process.env, CLAUDE_PROJECT_DIR: proj, AIDLC_DISABLE_SENSORS: "1" },
+    });
+    expect(showSensors()).toEqual([]);
+    expect(String(envRun.stdout).trim()).toBe("off (from env AIDLC_DISABLE_SENSORS)");
+  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+
   test("a clear without a layer is refused, and a real environment switch is not listed", () => {
     const { proj, run } = installed();
     const bare = run("aidlc.ts", ["config", "flags", "--clear-bypass", "AIDLC_DISABLE_SENSORS", "--yes"]);
@@ -508,6 +535,12 @@ describe("t349 (6) every composer surface names the settings contract", () => {
       // and the recovery names the layer flag a recorded switch needs.
       expect(text, surface).toContain("AIDLC_DISABLE_<NAME>");
       expect(text, surface).toMatch(/`?--global`? for `?\[machine\]`?/);
+      // The recovery is the human's loop: the agent never searches for the switch
+      // (shell and harness settings files can hold credentials), and one clear is
+      // not enough because --show names only the layer that wins.
+      expect(text, surface).toMatch(/never look for it yourself/i);
+      expect(text, surface).toContain("until nothing is listed");
+      expect(text, surface).not.toMatch(/unset where it is set|the shell or the harness settings/);
     }
   });
 

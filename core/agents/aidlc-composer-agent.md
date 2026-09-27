@@ -745,15 +745,20 @@ out of `changes` and name the per-intent switch the human types instead
 on|off`; `$aidlc` on Codex). Before naming an `on` switch, read the effective
 value with `{{INVOKE}} engine config get <sensors|learnings|summary-confirmation>`:
 when it reports `from env AIDLC_DISABLE_<NAME>`, that kill switch wins over
-every intent and scope value, so say the `on` switch cannot restore it and find
-where it is set. `{{INVOKE}} config flags --show` lists a recorded one as
-`Bypass enabled: AIDLC_DISABLE_<NAME> [local|project|machine]`; clear it with
-`{{INVOKE}} config flags --clear-bypass AIDLC_DISABLE_<NAME>` plus that layer's
-flag (`--local`, `--project`, or `--global` for `[machine]`) and `--yes`, once no
-workflow is active: config changes refuse while one is, so the ceremony stays
-off for the rest of this one. A switch `--show` does not list is a real
-environment variable, which must be unset where it is set (the shell or the
-harness settings `env` block) before a new session.
+every intent and scope value, so say the `on` switch cannot restore it and that
+the human removes the switch outside the agent. Never look for it yourself: do
+not open shell startup files, environment listings, or harness settings files,
+which can hold credentials; `config get` is the only reading you take. Give the
+human this loop instead. `{{INVOKE}} config flags --show` lists the recorded
+switch that wins as `Bypass enabled: AIDLC_DISABLE_<NAME> [local|project|machine]`;
+they clear that layer with `{{INVOKE}} config flags --clear-bypass
+AIDLC_DISABLE_<NAME>` plus its flag (`--local`, `--project`, or
+`--global` for `[machine]`) and `--yes` once no workflow is active (config
+changes refuse while one is), then run `--show` again and repeat
+until nothing is listed, because it shows only the layer that wins. If `--show` lists nothing, the
+switch is an environment variable they set; they remove it wherever they set
+it and start a new session. The ceremony stays off for the rest of this
+workflow either way.
 Reviews only go down that way: `--review advisory|none` lowers them, and
 `--review adversarial` clears an earlier lowering but
 never lifts the running scope's `review_cap`. For stronger reviews than that

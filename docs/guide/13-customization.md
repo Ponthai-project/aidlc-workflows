@@ -227,10 +227,13 @@ them before approving, and a custom scope stores the approved values in its
 frontmatter, so every new intent on it starts with those values. A kill switch
 still wins: when one forces an `on` value off on this machine, the gate marks it,
 and mid-workflow the composer names the switch and where it is set rather than an
-`on` flag. A recorded switch is listed by `aidlc config flags --show` with its
-layer and cleared with `--clear-bypass <NAME>` plus `--local`, `--project`, or
-`--global` (shown as `[machine]`) once no workflow is active; config changes
-refuse while one is.
+`on` flag. The agent never searches for the switch itself; you remove it. A
+recorded switch is listed by `aidlc config flags --show` with its layer and
+cleared with `--clear-bypass <NAME>` plus `--local`, `--project`, or `--global`
+(shown as `[machine]`) once no workflow is active, since config changes refuse
+while one is. `--show` names only the layer that wins, so run it again until
+nothing is listed. A switch it never lists is an environment variable: remove
+it wherever you set it and start a new session.
 
 These switches do not remove approval gates, Plan Approval, human-turn
 authority, audit, or team cross-unit write protection. Classic turns off
