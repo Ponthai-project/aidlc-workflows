@@ -552,6 +552,16 @@ export function shellCommandInvocationDetails(
   return invocations;
 }
 
+/** Each segment's words beside the invocation parsed from them. */
+export function shellCommandSegmentInvocations(
+  command: string,
+): { words: string[]; invocation: ShellInvocationDetails | null }[] {
+  return shellCommandSegments(command).map((segment) => {
+    const words = shellWords(segment);
+    return { words, invocation: shellInvocation(words) };
+  });
+}
+
 export function shellCommandAltersExecutableResolution(command: string): boolean {
   for (const segment of shellCommandSegments(command)) {
     const state: ShellInvocationParseState = {

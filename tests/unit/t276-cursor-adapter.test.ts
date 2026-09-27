@@ -1365,6 +1365,7 @@ describe("t276 cursor adapter payload conversion", () => {
       'bun .cursor/tools/aidlc-orchestrate.ts "$(printf next)"',
       'sh -c "$background_command"',
       "timeout 60 bun .cursor/tools/aidlc-orchestrate.ts next",
+      String.raw`printf 'aidlc\n' | xargs -I{} {} next`,
       "bun --preload ./review.ts .cursor/tools/aidlc-utility.ts version",
     ]) {
       assertDenied(runAdapter(proj, "guards", backgroundCommand(command)));
@@ -1667,6 +1668,7 @@ describe("t276 cursor adapter payload conversion", () => {
       // Wrappers are judged by the program they run.
       "find . -name '*.md' | xargs grep -l aidlc",
       "busybox grep aidlc README.md",
+      "find . -name '*.ts' -print0 | xargs -0 -I{} wc -l {}",
     ]) {
       expectAllowJson(shell(command), command);
     }

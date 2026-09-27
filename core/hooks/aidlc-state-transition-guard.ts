@@ -17,7 +17,10 @@ import {
   resolveProjectDirFromHook,
   writeGuardStoodAside,
 } from "../tools/aidlc-lib.ts";
-import { shellCommandInvocationDetails } from "./review-freeze-command.ts";
+import {
+  shellCommandInvocationDetails,
+  shellCommandSegmentInvocations,
+} from "./review-freeze-command.ts";
 import { refuseRuntimeIntegrityViolation } from "./runtime-integrity.ts";
 
 export const BLOCKED_STATE_TRANSITIONS = new Set([
@@ -1079,6 +1082,58 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+// xargs builds its command from input. Refuse when that input would supply
+// the program itself or a whole interpreter body; file names substituted into
+// a fixed program or script stay ordinary work.
+function xargsInputProgram(command: string): string | null {
+  for (const { words, invocation } of shellCommandSegmentInvocations(command)) {
+    if (!invocation?.dataDriven || invocation.ambiguous) continue;
+    const refused = xargsSegmentInputProgram(words, [
+      invocation.executable ?? invocation.name,
+      ...invocation.args,
+    ]);
+    if (refused !== null) return refused;
+  }
+  return null;
+}
+
+function xargsSegmentInputProgram(words: string[], program: string[]): string | null {
+  const replace: string[] = [];
+  for (
+    let i = words.findIndex((word) => commandBasename(word) === "xargs") + 1;
+    i > 0 && i < words.length && words[i].startsWith("-");
+    i++
+  ) {
+    const option = words[i];
+    const valued = option.match(/^-([IJ])(.*)$/);
+    if (valued) replace.push(valued[2] || (words[++i] ?? ""));
+    else if (option.startsWith("-i")) replace.push(option.slice(2) || "{}");
+    else if (/^--replace(?:=|$)/.test(option)) replace.push(option.split("=")[1] ?? "{}");
+    else if (/^-[adELnPs]$|^--(?:arg-file|delimiter|max-args|max-procs|max-chars|process-slot-var)$/.test(option)) i++;
+  }
+  const fromInput = (word: string) =>
+    replace.some((token) =>
+      token !== "" && (word === token || (/[^A-Za-z0-9_]/.test(token) && word.includes(token)))
+    );
+  const [name = "", ...args] = program;
+  if (fromInput(name)) return "xargs supplying a program from its input";
+  if (!SCRIPT_RUNNER.test(commandBasename(name))) return null;
+  const flag = args.findIndex((arg) => /^(?:-[A-Za-z]*[ce]|--eval|-p|--print)$/.test(arg) || /^-command$/i.test(arg));
+  if (flag < 0) return null;
+  const body = args[flag + 1];
+  if (body === undefined && replace.length === 0) return "xargs supplying a program from its input";
+  // The whole body, or a shell body's program, substituted from input.
+  const script = body?.trim() ?? "";
+  if (
+    body !== undefined &&
+    (replace.includes(script) ||
+      (POSIX_SHELL.test(commandBasename(name)) && fromInput(script.split(/\s+/)[0] ?? "")))
+  ) {
+    return "xargs supplying a program from its input";
+  }
+  return null;
+}
+
 function aidlcEntrypointInvocation(executable: string, argv: string[]): boolean {
   if (DISPATCHER_NAME.test(executable) || AIDLC_SCRIPT_NAME.test(executable)) return true;
   if (!SCRIPT_RUNNER.test(executable)) return false;
@@ -1136,6 +1191,12 @@ function delegatedLifecycleCommandAtDepth(
   background?: BackgroundInspection,
 ): string | null {
   if (depth > 8) return "nested shell command beyond guard inspection limit";
+  if (background) {
+    // The shared parser keeps `-I{}` whole, where the segments below split
+    // at braces.
+    const fromInput = xargsInputProgram(command);
+    if (fromInput !== null) return fromInput;
+  }
   const heredocBodies = heredocSubstitutionBodies(command);
   const source = maskHeredocBodies(command);
   const substitutions = executableSubstitutions(source);

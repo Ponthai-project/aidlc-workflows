@@ -153,8 +153,9 @@ utility shortcuts are `/aidlc-status`, `/aidlc-jump --stage <slug>` (or
   own, such as `bun .cursor/tools/aidlc.ts status`. Common wrappers and
   interpreters handed an AIDLC command (`sh -c '...'`, `timeout`, `xargs`,
   `find -exec`) are refused, as is a command whose program the shell computes
-  (`sh -c "$cmd"`, `eval "$cmd"`). A wrapped search such as
-  `xargs grep aidlc` still runs.
+  or `xargs` reads from input (`sh -c "$cmd"`, `eval "$cmd"`,
+  `xargs -I{} {} next`). A wrapped search such as `xargs grep aidlc` still
+  runs.
 
   This guards against the accidental case: a background agent that follows
   the AIDLC skill or a stop nudge and drives the foreground workflow by

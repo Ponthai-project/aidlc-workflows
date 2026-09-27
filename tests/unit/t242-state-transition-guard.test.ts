@@ -557,6 +557,12 @@ describe("t242 state-transition ownership guard", () => {
       "toybox timeout 5 aidlc next",
       `cmd='aidlc next'; busybox sh -c "$cmd"`,
       'sudo sh -c "$x"',
+      // xargs input that would supply the program or a whole shell body.
+      String.raw`printf 'aidlc\n' | xargs -I{} {} next`,
+      "xargs --replace={} {} next",
+      "printf aidlc | xargs -I@ env @ next",
+      "echo aidlc next | xargs sh -c",
+      "xargs -I{} sh -c '{} next'",
       "eval 'bun .cursor/tools/aidlc-utility.ts status'",
       `node --eval 'require("node:child_process").spawnSync("aidlc", ["next"])'`,
       `python3 -c 'import subprocess; subprocess.run(["bun", ".cursor/tools/aidlc-orchestrate.ts", "next"])'`,
@@ -584,6 +590,10 @@ describe("t242 state-transition ownership guard", () => {
       "timeout 60 grep -rn aidlc src",
       "sh -c 'grep -rn aidlc src'",
       "timeout 300 sh -c 'npm test'",
+      // File names substituted into a fixed program or script stay ordinary.
+      "xargs -I{} cp {} dest/",
+      "find . -name '*.ts' -print0 | xargs -0 -I{} wc -l {}",
+      "xargs -I{} sh -c 'wc -l {}'",
       "git stash",
       "git reset --hard",
       "git checkout -b feature/aidlc",

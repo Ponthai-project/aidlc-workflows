@@ -931,8 +931,11 @@ segment:
 - A wrapper the shared shell parser unwraps (`sudo`, `timeout`, `xargs`,
   `stdbuf`, `busybox`, `toybox`, and similar) is judged by the program it
   runs: an AIDLC entrypoint is refused, and any other program is classified as
-  if it ran directly, so `xargs grep aidlc` stays a search. POSIX shell `-c`
-  bodies and `eval` are parsed the same way. Other interpreters and hosts
+  if it ran directly, so `xargs grep aidlc` stays a search. `xargs` is also
+  refused when its input would supply the program or a whole shell body
+  (`xargs -I{} {} next`, `xargs sh -c`); file names substituted into a fixed
+  program or script stay allowed. POSIX shell `-c` bodies and `eval` are
+  parsed the same way. Other interpreters and hosts
   (`bun`, `node`, `python`, `csh`, `pwsh`, `npx`, `npm`, `find -exec`, and
   similar) are refused when their operands name an AIDLC entrypoint or a
   harness `tools`/`hooks` directory.
