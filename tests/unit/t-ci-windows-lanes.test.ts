@@ -164,7 +164,7 @@ describe("t-ci-windows-lanes", () => {
     expect(text).toContain("Claude Code's Bash tool: t-claude-hook-project-root, and t265's");
   });
 
-  test("the WSL lane pins setup-wsl to a commit, uses WSL 1, and runs smoke, hook units and a compiled binary inside the distro", () => {
+  test("the WSL lane pins setup-wsl to a commit, uses WSL 1, and runs smoke, hook units and an installed compiled binary inside the distro", () => {
     const job = ci.jobs.test_wsl_smoke;
     const wsl = steps(job).find((item) => item.uses?.startsWith("Vampire/setup-wsl@"))!;
     expect(wsl.uses).toBe("Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364");
@@ -197,8 +197,26 @@ describe("t-ci-windows-lanes", () => {
     expect(excluded).toEqual(["t05-run-tests-parallel.test.ts"]);
     expect(run).toContain("--unit --no-llm --file-timeout 7200 --run-timeout 14400 --filter '^(t07-hook-audit-logger|t228-hook-run-exports)$'");
     expect(run).toContain("bun scripts/build-binaries.ts --target bun-linux-x64");
-    expect(run).toContain("build/binaries/linux-x64/aidlc version");
-    expect(run).toContain("build/binaries/linux-x64/aidlc doctor --project-dir");
+    // Doctor checks the install itself (active version marker and command
+    // pointer), so the binary is installed with install.sh from a release
+    // directory first, and every command runs through the installed pointer.
+    const install = 'AIDLC_GH_BIN=/nonexistent/gh sh "$release/install.sh" --from "$release" --offline --quiet';
+    const order = [
+      "bun scripts/build-binaries.ts --target bun-linux-x64",
+      "bun scripts/package-release.ts",
+      `printf 'aidlc-wsl-smoke-provenance-fixture\\n' > "$release/aidlc-release.intoto.jsonl"`,
+      install,
+      'aidlc="$HOME/.local/bin/aidlc"',
+      '"$aidlc" version',
+      '"$aidlc" config --project-dir "$project" --harness claude --mcp none --quiet',
+      '"$aidlc" doctor --project-dir "$project" --quiet',
+    ].map((line) => {
+      const at = run.indexOf(line);
+      expect(at, line).toBeGreaterThanOrEqual(0);
+      return at;
+    });
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(run).not.toContain("build/binaries/linux-x64/aidlc doctor");
     expect(run.trimEnd().endsWith('exit "$result"')).toBe(true);
     // Evidence is sanitized by the Windows side before upload.
     expect(step(job, "Sanitize WSL evidence")).toMatchObject({ shell: "powershell", run: "bun scripts/ci-sanitize-logs.ts tmp/ci-wsl" });

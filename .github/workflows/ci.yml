@@ -454,12 +454,25 @@ jobs:
           bun tests/run-tests.ts --debug -P 4 --unit --no-llm --file-timeout 7200 --run-timeout 14400 --filter '^(t07-hook-audit-logger|t228-hook-run-exports)$' > "$capture/hooks.log" 2>&1 || result=$?
           cp -r tests/logs "$capture/logs" 2>/dev/null || true
           tail -n 20 "$capture/smoke.log" "$capture/hooks.log"
-          # The installed product is a compiled Bun binary; prove one built here runs under WSL 1.
+          # The installed product is a compiled Bun binary. Build one here and
+          # install it the way the README's WSL path does, with install.sh from a
+          # release directory: doctor checks the install itself (the active
+          # version marker and command pointer), so an uninstalled binary always
+          # fails it.
           bun scripts/build-binaries.ts --target bun-linux-x64
-          build/binaries/linux-x64/aidlc version
+          bun scripts/package-release.ts
+          release="$PWD/build/release"
+          # This build has no signed attestation. As in release.yml's lifecycle
+          # lanes, a placeholder fills install.sh's required bundle file, and an
+          # AIDLC_GH_BIN that does not exist keeps verification to the SHA-256
+          # release checksums.
+          printf 'aidlc-wsl-smoke-provenance-fixture\n' > "$release/aidlc-release.intoto.jsonl"
+          AIDLC_GH_BIN=/nonexistent/gh sh "$release/install.sh" --from "$release" --offline --quiet
+          aidlc="$HOME/.local/bin/aidlc"
+          "$aidlc" version
           project="$(mktemp -d)"
-          build/binaries/linux-x64/aidlc config --project-dir "$project" --harness claude --mcp none --quiet
-          build/binaries/linux-x64/aidlc doctor --project-dir "$project" --quiet
+          "$aidlc" config --project-dir "$project" --harness claude --mcp none --quiet
+          "$aidlc" doctor --project-dir "$project" --quiet
           exit "$result"
       - name: Sanitize WSL evidence
         id: sanitize_wsl
