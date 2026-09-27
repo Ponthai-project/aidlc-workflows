@@ -1163,7 +1163,9 @@ The engine replays paired review records, their gate rows, and artifact reuse
 rows into one list per stage scope. It assigns IDs to new findings, keeps
 decisions exact, shows same-or-lower reviewer comments as notes, turns a
 severity increase into a new finding, and keeps unmentioned open rows marked
-not re-checked. `GATE_APPROVED` atomically records `Accepted risk` for each
+not re-checked. A fixed finding reported as still applying is open again, or
+back to the decision made before it was fixed. A Redo row resets the list of
+each Unit whose artifacts it names, or every Unit when it names none. `GATE_APPROVED` atomically records `Accepted risk` for each
 current open finding. A Request Changes report records `Rejected: <reason>`
 only for explicit
 `--reject-finding <review-artifact>#R-NN=<exact human reason>` values. It uses

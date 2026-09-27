@@ -1624,17 +1624,21 @@ describe("t304 engine-owned findings experience", () => {
   });
 
   test("The reviewer comments on a decided finding at the same or lower severity: it becomes a note, not a question", () => {
-    const project = engineOwnedFindingProject(["Major"]);
+    const project = engineOwnedFindingProject(["Major", "Major"]);
     expect(
       requestChanges(project, [
         `${project.relativeArtifact}#R-01=This tradeoff is intentional`,
+        `${project.relativeArtifact}#R-02=Owned by another team`,
       ]).status,
     ).toBe(0);
     recordReviewViaRecord(
       project.proj,
       reviewReportMarkdown(
         "READY",
-        ["| R-01 | Still applies | Minor | Users still asked for PDF |"],
+        [
+          "| R-01 | Still applies | Minor | Users still asked for PDF |",
+          "| R-02 | Still applies | Major | The other team has not started |",
+        ],
         [],
       ),
       { gate: "revise" },
@@ -1649,6 +1653,11 @@ describe("t304 engine-owned findings experience", () => {
       "> R-01 Reviewer note: Users still asked for PDF",
     );
     expect(brief).toContain("| R-01 | Major |");
+    expect(brief).toContain("Rejected: Owned by another team");
+    expect(brief).toContain(
+      "> R-02 Reviewer note: The other team has not started",
+    );
+    expect(brief).not.toContain("| R-03 |");
     const context = renderFindingsContext(
       readReviewArtifactContexts(
         project.proj,
@@ -1950,6 +1959,9 @@ describe("t304 engine-owned findings experience", () => {
     expect(fixedRecord.findings[0].status).toBe("Resolved");
     expect(renderFindingsContext([context], "reviewer")).toContain(
       "The visible artifact still has no date",
+    );
+    expect(renderFindingsContext([context], "gate")).toContain(
+      "> R-01 Reopened: The visible artifact still has no date",
     );
   });
 
@@ -2716,6 +2728,227 @@ describe("t304 engine-owned report replay and compatibility", () => {
       project.proj,
     );
     expect(readReviewArtifactContexts(project.proj, stage)[0].findings[0].status).toBe("New");
+  });
+
+  test("a fixed finding the reviewer says applies again is open again, and a decision made before it was fixed stands", () => {
+    const project = engineOwnedFindingProject(["Minor", "Major"]);
+    const rel = project.relativeArtifact;
+    expect(requestChanges(project, [`${rel}#R-01=Intentional tradeoff`]).status)
+      .toBe(0);
+    recordReviewViaRecord(
+      project.proj,
+      reviewReportMarkdown(
+        "READY",
+        ["| R-01 | Fixed | | |", "| R-02 | Fixed | | |"],
+        [],
+      ),
+      { gate: "revise" },
+    );
+    expect(requestChanges(project).status).toBe(0);
+    recordReviewViaRecord(
+      project.proj,
+      reviewReportMarkdown(
+        "NOT-READY",
+        [
+          "| R-01 | Still applies | Minor | The date was removed again |",
+          "| R-02 | Still applies | Major | The owner was removed again |",
+        ],
+        [],
+      ),
+      { verdict: "NOT-READY", gate: "revise" },
+    );
+    const stage = findStageBySlug("requirements-analysis")!;
+    const findings = readReviewArtifactContexts(project.proj, stage)[0].findings;
+    expect(findings.map((finding) => [finding.id, finding.status])).toEqual([
+      ["R-01", "Rejected: Intentional tradeoff"],
+      ["R-02", "Unresolved"],
+    ]);
+    expect(findings.some((finding) => finding.resolvedByReviewer)).toBe(false);
+    const brief = renderReviewBrief(project.proj, stage, "revision");
+    expect(brief).toContain("> R-02 Reviewer note: The owner was removed again");
+    expect(brief).not.toContain("Resolved (reviewer)");
+    expect(brief).toContain("Concerns remain for your decision");
+  });
+
+  test("the transition six-column read reopens a fixed finding its reviewer marks unresolved", () => {
+    const project = engineOwnedFindingProject(["Major"]);
+    expect(requestChanges(project).status).toBe(0);
+    recordReviewViaRecord(
+      project.proj,
+      reviewReportMarkdown("READY", ["| R-01 | Fixed | | |"], []),
+      { gate: "revise" },
+    );
+    expect(requestChanges(project).status).toBe(0);
+    const oldReport = reviewMarkdown(
+      "NOT-READY",
+      [
+        `| R-01 | Major | ${project.relativeArtifact} > FR-1 | Concern 1 | Fix concern 1 | Unresolved |`,
+      ],
+    ).replace(/^# Requirements\n\n/, "");
+    recordReviewViaRecord(
+      project.proj,
+      oldReport,
+      { verdict: "NOT-READY", gate: "revise" },
+    );
+    expect(
+      readReviewArtifactContexts(
+        project.proj,
+        findStageBySlug("requirements-analysis")!,
+      )[0].findings,
+    ).toMatchObject([{ id: "R-01", status: "Unresolved" }]);
+  });
+
+  test("a repeated unknown prior ID becomes one new finding, and the repeat is a note on it", () => {
+    const project = engineOwnedFindingProject();
+    expect(requestChanges(project).status).toBe(0);
+    recordRetriedReview(
+      project,
+      reviewReportMarkdown(
+        "NOT-READY",
+        [
+          "| R-77 | Still applies | Major | Unknown prior concern |",
+          "| R-77 | Still applies | Major | Said again |",
+        ],
+        [],
+      ),
+    );
+    const findings = readReviewArtifactContexts(
+      project.proj,
+      findStageBySlug("requirements-analysis")!,
+    )[0].findings;
+    expect(findings.map((finding) => finding.id)).toEqual(["R-01", "R-02"]);
+    expect(findings[1].reviewerNote).toBe(
+      "Reviewer supplied prior ID R-77; Additional report for R-77: Said again",
+    );
+  });
+
+  test("severity words are matched without regard to case: a lower-case critical still escalates a decided finding", () => {
+    const project = engineOwnedFindingProject(["Minor"]);
+    expect(
+      requestChanges(project, [
+        `${project.relativeArtifact}#R-01=The initial impact is acceptable`,
+      ]).status,
+    ).toBe(0);
+    recordReviewViaRecord(
+      project.proj,
+      reviewReportMarkdown(
+        "NOT-READY",
+        ["| R-01 | Still applies | critical | Release is blocked without a date |"],
+        [],
+      ),
+      { verdict: "NOT-READY", gate: "revise" },
+    );
+    const findings = readReviewArtifactContexts(
+      project.proj,
+      findStageBySlug("requirements-analysis")!,
+    )[0].findings;
+    expect(findings[1]).toMatchObject({
+      id: "R-02",
+      severity: "Critical",
+      relatedFindingId: "R-01",
+    });
+  });
+
+  test("Redo from scratch on one Unit of a per-Unit stage leaves the other Units' lists and decisions", () => {
+    const { proj, artifacts } = perUnitReviewProject(
+      "functional-design",
+      ["unit-a", "unit-b"],
+    );
+    const stage = findStageBySlug("functional-design")!;
+    const unitB = readReviewArtifactContexts(proj, stage, "unit-b")[0]
+      .findings[0];
+    appendAuditEntry(
+      "GATE_REJECTED",
+      {
+        Stage: "functional-design",
+        Unit: "unit-b",
+        [REVIEW_FINDING_DISPOSITIONS_FIELD]: JSON.stringify({
+          version: 1,
+          dispositions: [{
+            artifact: unitB.artifact,
+            id: unitB.id,
+            fingerprint: unitB.fingerprint,
+            status: "Rejected: Covered by the shared rules",
+          }],
+        }),
+      },
+      proj,
+    );
+    const redo = (artifactList: string): void => {
+      const redone = run(
+        STATE,
+        [
+          "reuse-artifact",
+          "functional-design",
+          "--decision",
+          "redo",
+          "--artifacts",
+          artifactList,
+        ],
+        proj,
+      );
+      expect(redone.status, redone.out).toBe(0);
+    };
+    redo(artifacts.get("unit-a")!);
+    expect(
+      readReviewArtifactContexts(proj, stage, "unit-b")[0].findings[0],
+    ).toMatchObject({
+      id: "R-02",
+      status: "Rejected: Covered by the shared rules",
+    });
+    // A Redo naming no Unit's artifacts covers every Unit.
+    redo("entities.md");
+    expect(
+      readReviewArtifactContexts(proj, stage, "unit-b")[0].findings[0],
+    ).toMatchObject({ id: "R-02", status: "New" });
+  });
+
+  test("You upgrade mid-workflow after an earlier Redo: the legacy review still seeds the list and later decisions carry", () => {
+    const project = requirementProject([ROW_NEW], "NOT-READY");
+    const stage = findStageBySlug("requirements-analysis")!;
+    const seeded = readReviewArtifactContexts(project.proj, stage)[0]
+      .findings[0];
+    const decide = (status: string): void => {
+      appendAuditEntry(
+        "GATE_APPROVED",
+        {
+          Stage: "requirements-analysis",
+          [REVIEW_FINDING_DISPOSITIONS_FIELD]: JSON.stringify({
+            version: 1,
+            dispositions: [{
+              artifact: seeded.artifact,
+              id: seeded.id,
+              fingerprint: seeded.fingerprint,
+              status,
+            }],
+          }),
+        },
+        project.proj,
+      );
+    };
+    // An older release recorded a decision and a Redo before its reviewer
+    // appended the review now embedded in the artifact.
+    decide("Rejected: A decision on the list before the Redo");
+    const redone = run(
+      STATE,
+      [
+        "reuse-artifact",
+        "requirements-analysis",
+        "--decision",
+        "redo",
+        "--artifacts",
+        project.relativeArtifact,
+      ],
+      project.proj,
+    );
+    expect(redone.status, redone.out).toBe(0);
+    expect(
+      readReviewArtifactContexts(project.proj, stage)[0].findings[0],
+    ).toMatchObject({ id: "R-01", status: "New" });
+    decide("Accepted risk");
+    expect(
+      readReviewArtifactContexts(project.proj, stage)[0].findings[0],
+    ).toMatchObject({ id: "R-01", status: "Accepted risk" });
   });
 });
 

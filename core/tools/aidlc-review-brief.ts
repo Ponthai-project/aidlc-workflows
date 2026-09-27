@@ -187,8 +187,19 @@ function withFingerprint(finding: ReviewFinding): ReviewFinding {
   return { ...finding, fingerprint: reviewFindingFingerprint(finding) };
 }
 
+const FINDING_SEVERITIES: readonly string[] = ["Minor", "Major", "Critical"];
+
+// A reviewer's severity word is matched without regard to case and kept in its
+// canonical spelling; any other word is kept as written.
+function canonicalSeverity(severity: string): string {
+  const trimmed = severity.trim();
+  return FINDING_SEVERITIES.find((known) =>
+    known.toLowerCase() === trimmed.toLowerCase()
+  ) ?? trimmed;
+}
+
 function findingSeverityRank(severity: string): number | null {
-  const index = ["Minor", "Major", "Critical"].indexOf(severity);
+  const index = FINDING_SEVERITIES.indexOf(canonicalSeverity(severity));
   return index === -1 ? null : index;
 }
 
@@ -217,7 +228,7 @@ function reportNewFinding(
     artifact,
     ...(unit ? { unit } : {}),
     id: nextFindingId(findings),
-    severity: row.severity,
+    severity: canonicalSeverity(row.severity),
     location: row.location,
     finding: row.finding,
     requiredAction: row.requiredAction,
@@ -249,8 +260,23 @@ function applyPriorReport(
     resolvedInReview: false,
   }));
   const mentioned = new Set<string>();
+  // The new finding each unknown prior ID became, so a repeat is only a note.
+  const unknownIds = new Map<string, string>();
   let malformed = false;
   for (const row of rows) {
+    const created = unknownIds.get(row.id);
+    if (created !== undefined) {
+      malformed = true;
+      const target = next.findIndex((finding) => finding.id === created);
+      next[target] = {
+        ...next[target],
+        reviewerNote: reviewerNote(
+          next[target].reviewerNote,
+          `Additional report for ${row.id}: ${row.note || row.now}`,
+        ),
+      };
+      continue;
+    }
     const index = next.findIndex((finding) => finding.id === row.id);
     if (index === -1) {
       if (malformedUnknownIds) malformed = true;
@@ -270,6 +296,7 @@ function applyPriorReport(
           note,
         ),
       );
+      unknownIds.set(row.id, next[next.length - 1].id);
       continue;
     }
     if (mentioned.has(row.id)) {
@@ -284,6 +311,16 @@ function applyPriorReport(
       continue;
     }
     mentioned.add(row.id);
+    // A fixed finding the reviewer says applies again is back: a decision made
+    // before it was fixed stands, otherwise it is open again.
+    if (next[index].status === "Resolved" && row.now === "still-applies") {
+      next[index] = {
+        ...next[index],
+        status: next[index].earlierDecision ?? "Unresolved",
+        resolvedByReviewer: undefined,
+        earlierDecision: undefined,
+      };
+    }
     const current = next[index];
     const decided =
       current.status === "Accepted risk" ||
@@ -370,7 +407,7 @@ function applyPriorReport(
         : withFingerprint({
             ...current,
             status: "Unresolved",
-            severity: row.severity || current.severity,
+            severity: canonicalSeverity(row.severity) || current.severity,
             reviewerNote: row.note || undefined,
             notRechecked: undefined,
             reopenedReason: undefined,
@@ -529,6 +566,30 @@ function gateAppliesToScope(
   }
   const eventUnit = auditBlockField(event.block, "Unit");
   return unit === undefined || eventUnit === null || eventUnit === unit;
+}
+
+// Redo from scratch begins a new list for the scope it covers. The row carries
+// no Unit, so on a per-Unit stage the Units are read from its artifact paths; a
+// row naming no Unit's path covers every Unit.
+function redoAppliesToScope(
+  event: AuditShardEvent,
+  stageSlug: string,
+  unit?: string,
+): boolean {
+  if (
+    event.event !== "ARTIFACT_REUSED" ||
+    auditBlockField(event.block, "Stage") !== stageSlug ||
+    auditBlockField(event.block, "Workflow") !== null ||
+    auditBlockField(event.block, "Decision")?.toLowerCase() !== "redo"
+  ) {
+    return false;
+  }
+  if (unit === undefined) return true;
+  const units = (auditBlockField(event.block, "Artifacts") ?? "")
+    .split(",")
+    .map((path) => pathUnit(toPosix(path.trim()), stageSlug))
+    .filter((pathUnitName) => pathUnitName !== undefined);
+  return units.length === 0 || units.includes(unit);
 }
 
 function findingIsOpen(finding: ReviewFinding): boolean {
@@ -766,16 +827,21 @@ export function deriveReviewFindingsList(
     { disposition: ReviewFindingDisposition; severity?: string }
   >();
 
-  for (const event of events) {
-    if (
-      event.event === "ARTIFACT_REUSED" &&
-      auditBlockField(event.block, "Stage") === stage.slug &&
-      auditBlockField(event.block, "Workflow") === null &&
-      auditBlockField(event.block, "Decision")?.toLowerCase() === "redo"
-    ) {
-      findings = [];
-      verdict = null;
-      findingsText = undefined;
+  // Redo overwrites the artifact, so a legacy section in it was written after
+  // the last Redo: the seed begins the list that Redo started.
+  const lastRedo = seed === null
+    ? -1
+    : events.findLastIndex((event) =>
+      redoAppliesToScope(event, stage.slug, unit)
+    );
+  for (const [index, event] of events.entries()) {
+    if (redoAppliesToScope(event, stage.slug, unit)) {
+      const seeded = seed !== null && index === lastRedo;
+      findings = seeded
+        ? seed.findings.map((finding) => ({ ...finding }))
+        : [];
+      verdict = seeded ? seed.verdict : null;
+      findingsText = seeded ? seed.findingsText : undefined;
       latestRef = undefined;
       latestResolvedCount = 0;
       incompleteReview = false;
@@ -1424,6 +1490,12 @@ export function renderFindingsContext(
       }
       if (finding.notRechecked) {
         lines.push("", `> ${finding.id} Not re-checked this round`);
+      }
+      if (finding.reopenedReason) {
+        lines.push(
+          "",
+          `> ${finding.id} Reopened: ${markdownCell(finding.reopenedReason)}`,
+        );
       }
       if (finding.resolvedByReviewer && finding.earlierDecision) {
         lines.push(
